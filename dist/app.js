@@ -1597,6 +1597,12 @@ function stepLabelFor(card, step) {
   return STEP_LABELS[step] || step;
 }
 
+/* 步骤序号以 card.steps 实际位置为准，避免无词缀流程写死「第 3 步」 */
+function stepPrefix(card, stage) {
+  const i = card.steps.indexOf(stage);
+  return i >= 0 ? `第 ${i + 1} 步 · ` : '';
+}
+
 function letterPattern(word) {
   const chars = word.split('');
   return chars.map((ch, i) => (i === 0 || i === chars.length - 1 ? ch : '·')).join('');
@@ -1682,10 +1688,18 @@ function affixRowsHTML(w, opts) {
 
 function stageBarHTML(card) {
   const finished = card.result != null;
+  const stageOk = (s) => (s === 'guess' ? card.guessOk : s === 'recall' || s === 'listen' ? card.recallOk : true);
   const items = card.steps.map((s, i) => {
-    const cls = finished || i < card.step ? 'done' : i === card.step ? 'active' : '';
-    const mark = finished || i < card.step ? '✓' : i + 1;
-    return `<div class="stage-item ${cls}"><span class="num">${mark}</span><span>${esc(stepLabelFor(card, s))}</span></div>`;
+    const passed = finished || i < card.step;
+    const cls = passed ? 'done' : i === card.step ? 'active' : '';
+    let mark = passed ? '✓' : i + 1;
+    let miss = false;
+    if (passed) {
+      const ok = stageOk(s);
+      if (ok === false) { mark = '×'; miss = true; }
+      else if (ok === null) mark = i + 1;
+    }
+    return `<div class="stage-item ${cls}${miss ? ' miss' : ''}"><span class="num">${mark}</span><span>${esc(stepLabelFor(card, s))}</span></div>`;
   });
   return `<div class="stage-bar" aria-label="本题内部流程"><span class="stage-kicker">本题</span>${items.join('<span class="stage-sep"></span>')}</div>`;
 }
@@ -1740,10 +1754,10 @@ function guessHTML(card) {
   const isEn = card.dir === 'en2zh';
   return `
     <div class="reveal-anim">
-      <div class="prompt-label">第 2 步 · ${isEn ? '猜中文意思' : '写出英文单词'}</div>
+      <div class="prompt-label">${stepPrefix(card, 'guess')}${isEn ? '猜中文意思' : '写出英文单词'}</div>
       ${isEn
         ? `<div class="word-display small">${wordDisplayHTML(w)}</div>
-           <p class="hint-line">根据刚才的词缀拆解，猜一猜它的中文意思。</p>`
+           <p class="hint-line">${card.steps.includes('breakdown') ? '根据刚才的词缀拆解，猜一猜它的中文意思。' : '根据词形线索，猜一猜它的中文意思。'}</p>`
         : `<div class="meaning-list">${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}</div>
            <p class="hint-line">根据释义、词性和字母提示，写出对应的英文单词。</p>`}
       <div class="answer-box">
@@ -1781,13 +1795,15 @@ function revealHTML(card) {
   } else if (card.dir === 'zh2en' && card.guessGrade === 'synonym') {
     verdict = verdictHTML('good', '✓', `同义也算对：<strong>${esc(card.guess)}</strong> 同样表示这个释义。这题的标准答案是 <strong>${esc(w.word)}</strong>。`);
   } else if (card.guessOk) {
-    verdict = verdictHTML('good', '✓', `猜义命中：<strong>${esc(card.guess)}</strong>。词缀推理方向是对的。`);
+    const affixHint = card.steps.includes('breakdown') ? '词缀推理方向是对的。' : '';
+    verdict = verdictHTML('good', '✓', `猜义命中：<strong>${esc(card.guess)}</strong>。${affixHint}`);
   } else {
-    verdict = verdictHTML('bad', '×', `你的猜测：<strong>${esc(card.guess || '（空）')}</strong>，和标准答案有差距。对照下面的拆解再看一遍。`);
+    const tail = card.steps.includes('breakdown') ? '对照下面的拆解再看一遍。' : '对照下面的答案和释义再看一遍。';
+    verdict = verdictHTML('bad', '×', `你的猜测：<strong>${esc(card.guess || '（空）')}</strong>，和标准答案有差距。${tail}`);
   }
   return `
     <div class="reveal-anim">
-      <div class="prompt-label">${card.dir === 'listen' ? '第 2 步 · 核对拼写' : '第 3 步 · 核对答案'}</div>
+      <div class="prompt-label">${stepPrefix(card, 'reveal')}${card.dir === 'listen' ? '核对拼写' : '核对答案'}</div>
       ${verdict}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
@@ -1809,7 +1825,7 @@ function recallHTML(card) {
   const w = card.word;
   return `
     <div class="reveal-anim">
-      <div class="prompt-label">第 4 步 · ${card.dir === 'zh2en' ? '回忆验证' : '拼写验证'}</div>
+      <div class="prompt-label">${stepPrefix(card, 'recall')}${card.dir === 'zh2en' ? '回忆验证' : '拼写验证'}</div>
       <p class="recall-hint">${card.dir === 'zh2en'
         ? '再写一次这个英文单词，确认不是刚刚照着抄。'
         : '不看上面的答案，把英文单词完整拼出来。'}</p>
