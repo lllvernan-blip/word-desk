@@ -15,13 +15,13 @@
 | `words.js` / `words-core.js` | 词库数据（`words-core.js` 由脚本生成，**勿手改**） |
 | `roots-data.js` | 词根数据离线兜底（脚本生成，**勿手改**） |
 | `content/` | 词库与词根的可热更新 JSON（manifest.json / roots.json / words-extra.json） |
-| `sw.js` | Service Worker，当前缓存版本 `wtp-shell-v26` |
+| `sw.js` | Service Worker，当前缓存版本 `wtp-shell-v29` |
 | `manifest.webmanifest` / `icons/` | PWA 清单与图标 |
 
 ## 修改规则
 
 1. 只在本目录的 `dist/` 里改，不要新建平行副本
-2. 改了任何静态资源（html/css/js/json）后，必须把 `sw.js` 里的 `CACHE = 'wtp-shell-vNN'` 版本号递增（当前 v26），否则用户端会一直拿旧缓存
+2. 改了任何静态资源（html/css/js/json）后，必须把 `sw.js` 里的 `CACHE = 'wtp-shell-vNN'` 版本号递增（当前 v29），否则用户端会一直拿旧缓存
 3. 改完先本地验证：`python3 -m http.server 8000 --directory dist`，浏览器打开 http://localhost:8000 检查主流程
 4. 改动完成后：Qoder 里的 agent 使用 sites-hosting 流程直接发布；非 Qoder 工具的 agent 只改文件，由用户回到 Qoder 说「发布」完成同步
 5. 发布前确认本次会话没有其他 agent 正在同时改这个目录，避免互相覆盖

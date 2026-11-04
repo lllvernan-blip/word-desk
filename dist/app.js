@@ -1543,7 +1543,7 @@ function makeCard(w) {
     const hasAffix = w.prefixes.length || w.suffixes.length;
     if (!hasAffix) steps = ['guess', 'reveal', 'recall']; // 无词缀：跳过无信息量的拆解
     else if (conf >= AFFIX_MIN_CONF) steps = ['breakdown', 'guess', 'reveal', 'recall'];
-    else steps = ['breakdown', 'reveal', 'recall']; // 低置信：保留拆解提示，但不据此猜义
+    else steps = ['guess', 'reveal', 'recall']; // 低置信：拆解不可靠就不展示，猜义照常（学习强度一致）
   } else {
     steps = ['clue', 'guess', 'reveal', 'recall'];
   }
@@ -1791,7 +1791,7 @@ function revealHTML(card) {
   } else if (card.guessOk === null) {
     verdict = verdictHTML('skip', '—', '你跳过了猜义。<strong>没关系</strong>，下面用拼写验证来确认记忆。');
   } else if (card.dir === 'zh2en' && card.guessGrade === 'close') {
-    verdict = verdictHTML('skip', '≈', `意思对了，拼写差一点：你写的是 <strong>${esc(card.guess)}</strong>，正确拼写 <strong>${esc(w.word)}</strong>。记 Hard，拼写错误单独计数。`);
+    verdict = verdictHTML('skip', '≈', `意思对了，拼写差一点：你写的是 <strong>${esc(card.guess)}</strong>，正确拼写 <strong>${esc(w.word)}</strong>。这次算难，拼写错误单独计数。`);
   } else if (card.dir === 'zh2en' && card.guessGrade === 'synonym') {
     verdict = verdictHTML('good', '✓', `同义也算对：<strong>${esc(card.guess)}</strong> 同样表示这个释义。这题的标准答案是 <strong>${esc(w.word)}</strong>。`);
   } else if (card.guessOk) {
@@ -1916,10 +1916,10 @@ function resultHTML(card) {
     <div class="reveal-anim">
       ${ok
         ? card.recallGrade === 'close'
-          ? verdictHTML('skip', '≈', `意思对了，拼写差一点：你写的是 <strong>${esc(card.recallTyped || '')}</strong>，正确拼写 <strong>${esc(w.word)}</strong>。记 Hard，拼写错误单独计数。`)
+          ? verdictHTML('skip', '≈', `意思对了，拼写差一点：你写的是 <strong>${esc(card.recallTyped || '')}</strong>，正确拼写 <strong>${esc(w.word)}</strong>。这次算难，拼写错误单独计数。`)
           : card.recallGrade === 'synonym'
-            ? verdictHTML('good', '✓', `同义也算对：<strong>${esc(card.recallTyped || '')}</strong> 同样表示这个释义。这题的标准答案是 <strong>${esc(w.word)}</strong>，记 Good。`)
-            : verdictHTML('good', '✓', `${card.dir === 'listen' ? '听写正确' : '拼写正确'}，本题记为 <strong>${card.rating === 2 ? 'Hard（答得太快，按 Hard 记）' : card.rating === 4 ? 'Easy' : 'Good'}</strong>。`)
+            ? verdictHTML('good', '✓', `同义也算对：<strong>${esc(card.recallTyped || '')}</strong> 同样表示这个释义。这题的标准答案是 <strong>${esc(w.word)}</strong>，记不错。`)
+            : verdictHTML('good', '✓', `${card.dir === 'listen' ? '听写正确' : '拼写正确'}，本题记为 <strong>${card.rating === 2 ? '困难（答得太快，按困难记）' : card.rating === 4 ? '简单' : '不错'}</strong>。`)
         : verdictHTML('bad', '×', `这次没${card.dir === 'listen' ? '听对' : '拼对'}。正确答案是 <strong>${esc(w.word)}</strong>，已自动加入错题本。`)}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
