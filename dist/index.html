@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" id="colorSchemeMeta" />
+<meta name="theme-color" content="#f2efe7" id="themeColorMeta" />
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("wd-theme"); } catch (e) { t = null; }
+    if (t !== "light" && t !== "dark") {
+      t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<meta name="description" content="单词翻译练习台：先按前后缀选一批词，再做中英互译练习，配合间隔重复复习，离线可用。" />
+<title>单词翻译练习台</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="icon" href="./icons/icon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="./icons/icon-192.png" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-current-view="practice">
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-text">
+        <h1 class="brand-title">单词翻译练习台</h1>
+        <span class="brand-sub">WORD DESK · 选词翻译练习</span>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="主导航">
+      <button type="button" class="nav-item active" data-view="practice">练词</button>
+      <button type="button" class="nav-item" data-view="library">词库</button>
+    </nav>
+
+    <div class="top-actions">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换显示模式" title="切换显示模式">
+        <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"></path></svg>
+      </button>
+      <button type="button" class="nav-utility" data-view="data">进度 · 错题</button>
+      <span class="status-chip" title="离线状态"><span class="status-dot" id="netDot"></span><span class="status-text" id="contentStatus">本地词库</span></span>
+      <button class="btn tiny ghost" id="installBtn" type="button" hidden>安装到桌面</button>
+    </div>
+  </header>
+
+  <main class="views">
+    <!-- ================= 练词：选词 → 中英互译 ================= -->
+    <section class="view view-practice" data-view="practice">
+      <section class="picker-sheet" id="pickerSheet">
+        <div class="picker-primary">
+          <div class="picker-head">
+            <div class="picker-title-block">
+              <h2 class="picker-title">选词，然后做中英互译</h2>
+              <div class="plan-stats" id="planStats"></div>
+            </div>
+          </div>
+
+          <div class="picker-cta">
+            <div class="picker-result">
+              <span class="picker-result-num"><span class="picker-result-label" id="pickerCountLabel">命中</span> <b id="pickerCount">0</b> 词</span>
+              <span class="picker-result-note" id="pickerScopeNote"></span>
+            </div>
+            <div class="picker-actions">
+              <div class="picker-controls">
+                <div class="seg small direction-seg" id="directionSeg" role="group" aria-label="练习方向">
+                  <button type="button" data-dir="en2zh" class="active">英译中</button>
+                  <button type="button" data-dir="zh2en">中译英</button>
+                </div>
+                <div class="seg small" id="scopeSeg" role="group" aria-label="取词范围">
+                  <button type="button" data-scope="review" class="active">今日复习计划</button>
+                  <button type="button" data-scope="library">全库</button>
+                </div>
+              </div>
+              <button class="btn primary lg" id="startPickerBtn" type="button">用这 0 个词开始练习</button>
+              <button class="btn ghost" id="cancelEditBtn" type="button" hidden>返回当前练习</button>
+            </div>
+          </div>
+        <p class="picker-hint" id="pickerHint"></p>
+        <div class="picker-empty" id="pickerEmpty" hidden></div>
+        </div>
+
+        <details class="filter-drawer" id="filterDrawer">
+          <summary>
+            <span class="fd-title">分类筛选</span>
+            <span class="fd-meta" id="filterSummary"></span>
+          </summary>
+          <div class="filter-drawer-body">
+        <section class="affix-picker" aria-label="按分类选词">
+          <div class="affix-picker-head">
+            <label class="affix-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              <input id="affixSearch" type="search" placeholder="搜索词缀或词根" autocomplete="off" />
+            </label>
+          </div>
+
+          <details class="affix-group" id="prefixGroup" open>
+            <summary>
+              <span class="affix-group-name">前缀</span>
+              <span class="affix-group-meta" id="prefixGroupMeta">—</span>
+            </summary>
+            <div class="chip-row">
+              <div class="chip-wrap chips-pre" id="prefixChips"></div>
+              <button type="button" class="chip expand" data-expand="prefix" hidden>展开</button>
+            </div>
+          </details>
+
+          <details class="affix-group" id="suffixGroup" open>
+            <summary>
+              <span class="affix-group-name">后缀</span>
+              <span class="affix-group-meta" id="suffixGroupMeta">—</span>
+            </summary>
+            <div class="chip-row">
+              <div class="chip-wrap chips-suf" id="suffixChips"></div>
+              <button type="button" class="chip expand" data-expand="suffix" hidden>展开</button>
+            </div>
+          </details>
+
+          <details class="affix-group" id="rootGroup" open>
+            <summary>
+              <span class="affix-group-name">词根</span>
+              <span class="affix-group-meta" id="rootGroupMeta">—</span>
+            </summary>
+            <div class="chip-row">
+              <div class="chip-wrap chips-root" id="rootChips"></div>
+              <button type="button" class="chip expand" data-expand="root" hidden>展开</button>
+            </div>
+          </details>
+
+          <div class="affix-selected" id="affixSelected" hidden></div>
+        </section>
+        <details class="more-filters" id="moreFilters">
+          <summary>更多条件 <span class="hint" id="moreFilterCount"></span></summary>
+          <div class="more-grid">
+            <label class="field">
+              <span>关键词</span>
+              <input id="pickSearchInput" type="search" placeholder="单词或中文释义" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>词性</span>
+              <select id="pickPosSelect" aria-label="词性"><option value="">全部词性</option></select>
+            </label>
+            <label class="field">
+              <span>首字母</span>
+              <select id="pickLetterSelect" aria-label="首字母"><option value="">全部字母</option></select>
+            </label>
+            <div class="more-actions">
+              <button class="btn tiny ghost" id="pickClearFilters" type="button">清空条件</button>
+            </div>
+          </div>
+        </details>
+        <div class="paste-entry">
+          <button class="btn tiny ghost" id="pasteEntryBtn" type="button">粘贴词表 →</button>
+          <button class="btn tiny" id="pasteResumeBtn" type="button" hidden>继续练上次粘贴的词</button>
+        </div>
+          </div>
+        </details>
+
+        <div class="picker-secondary">
+        <details class="root-drill" id="rootDrill" hidden>
+          <summary>
+            <span class="rd-title">词根同族词</span>
+            <span class="rd-meta" id="rootDrillMeta"></span>
+          </summary>
+          <div class="root-drill-body">
+            <div class="root-chips" id="rootDrillChips"></div>
+            <p class="hint" id="rootDrillHint"></p>
+          </div>
+        </details>
+        <details class="practice-settings">
+          <summary>练习设置</summary>
+          <div class="settings-grid">
+            <div class="setup-field">
+              <span class="field-label">猜义方式</span>
+              <div class="seg" id="answerSeg" role="group" aria-label="猜义方式">
+                <button type="button" data-answer="choice" class="active">四选一</button>
+                <button type="button" data-answer="input">自己输入</button>
+              </div>
+            </div>
+            <label class="field">
+              <span>题量（全库模式）</span>
+              <select id="countSelect" aria-label="题量">
+                <option value="10">10 题</option>
+                <option value="20">20 题</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>每日新词上限</span>
+              <input type="number" id="dailyNewInput" min="0" max="15" step="1" inputmode="numeric" aria-label="每日新词上限" />
+            </label>
+            <label class="switch setup-switch"><input id="shuffleToggle" type="checkbox" checked /><span>打乱顺序</span></label>
+            <label class="switch setup-switch" id="followReadItem"><input id="followReadToggle" type="checkbox" /><span>结果页跟读自评</span></label>
+          </div>
+        </details>
+        </div>
+      </section>
+
+      <section class="train-sheet session-sheet" id="sessionSheet" hidden>
+        <div class="drill-note" id="sessionDrillNote" hidden>
+          <b>专项训练</b>
+        </div>
+        <button type="button" class="session-filter" id="sessionFilterBar" title="返回筛选面板，修改后替换本轮队列">
+          <span class="sf-tags" id="sessionFilterTags"></span>
+          <span class="sf-direction" id="sessionFilterDir">英译中</span>
+          <span class="sf-count" id="sessionFilterCount">0 词</span>
+          <span class="sf-edit">修改</span>
+        </button>
+        <div class="session" id="sessionBox">
+          <div class="session-top">
+            <div class="progress-wrap">
+              <div class="progress"><i id="progressBar"></i></div>
+              <div class="progress-meta">
+                <span id="progressMeta">1 / 12</span>
+                <span class="sep">·</span>
+                <span id="sessionStats">正确 0 · 连对 0</span>
+              </div>
+            </div>
+            <button class="btn tiny ghost" id="quitBtn" type="button">结束本轮</button>
+          </div>
+          <div class="session-body" id="sessionBody"></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================= 词库：浏览 / 导入 / 编辑 ================= -->
+    <section class="view view-library" data-view="library" hidden>
+      <section class="library-sheet" id="libraryCard">
+        <div class="view-head">
+          <div>
+            <h2>浏览与管理词条 <span class="head-count" id="libraryCount">0 词</span></h2>
+          </div>
+          <div class="head-tools">
+            <div class="seg small" id="libModeSeg" role="group" aria-label="词库范围">
+              <button type="button" data-mode="all" class="active">全部</button>
+              <button type="button" data-mode="builtin">仅内置</button>
+              <button type="button" data-mode="user">仅我的</button>
+            </div>
+            <button class="btn tiny ghost" id="importBtn" type="button" title="导入 CSV / JSON 词表">导入</button>
+            <button class="btn tiny" id="addWordBtn" type="button">+ 新增</button>
+          </div>
+        </div>
+
+        <div class="filter-panel">
+          <div class="filter-top">
+            <label class="search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              <input id="searchInput" type="search" placeholder="搜索单词或中文释义" autocomplete="off" />
+            </label>
+            <div class="selects">
+              <select id="posSelect" aria-label="词性"><option value="">全部词性</option></select>
+              <select id="letterSelect" aria-label="首字母"><option value="">全部字母</option></select>
+            </div>
+          </div>
+
+          <div class="affix-panel">
+            <div class="affix-selected" id="libAffixSelected" hidden></div>
+            <details class="affix-fold" id="libAffixFold">
+              <summary>
+                <span class="affix-fold-title">按分类查看</span>
+                <span class="affix-fold-count" id="libAffixFoldCount"></span>
+              </summary>
+              <div class="affix-fold-body">
+                <div class="affix-block">
+                  <div class="affix-head">前缀</div>
+                  <div class="chip-row">
+                    <div class="chip-wrap chips-pre" id="libPrefixChips"></div>
+                    <button type="button" class="chip expand" data-expand="prefix" hidden>展开</button>
+                  </div>
+                </div>
+                <div class="affix-block">
+                  <div class="affix-head">后缀</div>
+                  <div class="chip-row">
+                    <div class="chip-wrap chips-suf" id="libSuffixChips"></div>
+                    <button type="button" class="chip expand" data-expand="suffix" hidden>展开</button>
+                  </div>
+                </div>
+                <div class="affix-block">
+                  <div class="affix-head">词根</div>
+                  <div class="chip-row">
+                    <div class="chip-wrap chips-root" id="libRootChips"></div>
+                    <button type="button" class="chip expand" data-expand="root" hidden>展开</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="filter-count">
+            <span><b id="resultCount">0</b> 词 <span id="filterNote"></span></span>
+            <div class="filter-actions">
+              <button class="btn tiny ghost" id="clearFilters" type="button">清空筛选</button>
+              <button class="btn tiny" id="libStartBtn" type="button">用当前筛选开始练习</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="lib-grid" id="libraryGrid"></div>
+        <div class="load-more" id="loadMoreWrap" hidden><button class="btn tiny" id="loadMoreBtn" type="button">显示更多词条</button></div>
+
+        <details class="import-panel" id="importPanel">
+          <summary>导入我的词表 <span class="tag">CSV / TXT / JSON</span></summary>
+          <div class="import-body">
+            <label class="dropzone" id="dropZone" for="fileInput">
+              <div class="dz-icon" aria-hidden="true">⇩</div>
+              <div class="dz-title">把 CSV / TXT / JSON 文件拖到这里</div>
+              <div class="dz-sub">或点击选择文件。TXT 支持「单词,释义」或纯单词列表；纯词表只读取内置释义，不写入你的自建词库。</div>
+              <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.json,text/csv,text/plain,application/json" hidden />
+            </label>
+            <div class="import-actions">
+              <button class="btn tiny" id="csvTemplateBtn" type="button">下载 CSV 模板</button>
+              <button class="btn tiny" id="jsonExampleBtn" type="button">下载 JSON 示例</button>
+              <button class="btn tiny" id="loadSampleBtn" type="button">载入示例词表试试</button>
+              <button class="btn tiny ghost" id="clearUserBtn" type="button">清空我的词库</button>
+            </div>
+            <div class="help-grid">
+              <div class="help-box">
+                <b>CSV 怎么写</b>
+                第一行是表头，用英文列名即可：<code>word</code> 单词，<code>meaning</code> 中文释义，<code>pos</code> 词性，<code>prefixes</code> 前缀，<code>suffixes</code> 后缀。<br />
+                多个义项用中文分号 <code>；</code> 分隔，多个词性/词缀用英文逗号分隔。词缀写 <code>un-</code>、<code>-able</code> 这种带横线的形式即可。
+                <div class="cols">
+                  <span class="tag">Word 不可为空</span><span class="tag">Meaning 必填</span><span class="tag">其余可留空</span>
+                </div>
+              </div>
+              <div class="help-box">
+                <b>JSON 怎么写</b>
+                可以是数组，也可以是 <code>{"words": [...]}</code>。每个对象包含 <code>word</code>、<code>meaning</code>（或 <code>meanings</code> 数组）、<code>pos</code>、<code>prefixes</code>、<code>suffixes</code>。<br />
+                也可以只写一个单词字符串，释义留空后可在词库中编辑补充。
+                <div class="cols">
+                  <span class="tag">UTF-8 编码</span><span class="tag">支持拖拽</span><span class="tag">重复单词会跳过</span>
+                </div>
+              </div>
+            </div>
+            <div id="importResult"></div>
+            <div class="import-errors" id="importErrors"></div>
+          </div>
+        </details>
+      </section>
+    </section>
+
+    <!-- ================= 进度：图表 / 错题本 ================= -->
+    <section class="view view-data" data-view="data" hidden>
+      <section class="data-sheet">
+        <div class="view-head">
+          <div>
+            <h2>学习数据</h2>
+          </div>
+          <span class="head-count" id="totalReviewed">累计 0 次复习</span>
+        </div>
+
+        <div class="stats-grid">
+          <div class="chart-block">
+            <div class="chart-head"><h3>复习日历</h3><span class="chart-sub">最近 13 周</span></div>
+            <div class="heatmap-wrap"><div class="heatmap" id="heatmap"></div></div>
+            <div class="heat-legend"><span>少</span><i class="heat-cell" data-l="0"></i><i class="heat-cell" data-l="1"></i><i class="heat-cell" data-l="2"></i><i class="heat-cell" data-l="3"></i><i class="heat-cell" data-l="4"></i><span>多</span></div>
+          </div>
+          <div class="chart-block">
+            <div class="chart-head"><h3>掌握度分布</h3><span class="chart-sub">按 FSRS 稳定度</span></div>
+            <div class="bars" id="masteryChart"></div>
+          </div>
+          <div class="chart-block">
+            <div class="chart-head"><h3>学习曲线</h3><span class="chart-sub">14 天正确率</span></div>
+            <div class="chart-body" id="curveChart"></div>
+          </div>
+          <div class="chart-block">
+            <div class="chart-head"><h3>错题收敛</h3><span class="chart-sub">错题本总量</span></div>
+            <div class="chart-body" id="wrongChart"></div>
+          </div>
+        </div>
+
+        <div class="meta-line">
+          <span id="nextDuePreview">还没有复习计划</span>
+          <span class="spacer"></span>
+          <button class="btn tiny ghost" id="exportBtn" type="button">导出进度</button>
+          <button class="btn tiny ghost" id="analyticsBtn" type="button">上报设置</button>
+        </div>
+
+        <div class="analytics-panel" id="analyticsPanel" hidden>
+          <div class="help-box">
+            <b>本地埋点</b> 关键事件只存在本机（IndexedDB），默认不上传。填写端点并开启后，会把未发送的事件 POST 过去，作为将来接后端的预留。
+            <div class="form-grid">
+              <label class="form-field"><span>上报端点（留空即关闭）</span><input id="endpointInput" type="url" placeholder="https://example.com/api/events" /></label>
+              <div class="report-row">
+                <label class="switch"><input id="reportToggle" type="checkbox" /><span>启用上报</span></label>
+                <button class="btn tiny" id="flushBtn" type="button">立即发送</button>
+                <span class="hint" id="reportState">已关闭</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="wrong-sheet" id="wrongCard">
+        <div class="view-head">
+          <div>
+            <h2>需要再练的词 <span class="head-count" id="wrongCount">0 词</span></h2>
+          </div>
+          <div class="head-tools">
+            <button class="btn tiny" id="retryAllWrong" type="button">全部重练</button>
+            <button class="btn tiny ghost" id="clearWrong" type="button">清空</button>
+          </div>
+        </div>
+        <div class="wrong-list" id="wrongList"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>数据保存在当前浏览器</span>
+    <span id="offlineNote"></span>
+  </footer>
+</div>
+
+<nav class="tabbar" aria-label="移动端导航">
+  <button type="button" class="tab-item active" data-view="practice">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7"></path><path d="M18 16l2 2 3-4"></path></svg>
+    <span>练词</span>
+  </button>
+  <button type="button" class="tab-item" data-view="library">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 0 4 23.5z"></path><path d="M4 5.5v16M8 7h8M8 11h6"></path></svg>
+    <span>词库</span>
+  </button>
+  <button type="button" class="tab-item" data-view="data">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+    <span>进度</span>
+  </button>
+</nav>
+
+<div class="modal-overlay" id="wordModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h3 id="modalTitle">新增词条</h3>
+      <button class="modal-close" id="closeModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <form id="wordForm">
+      <div class="form-grid">
+        <label class="form-field"><span>单词 *</span><input id="fWord" required placeholder="例如 unhappy" autocomplete="off" /></label>
+        <label class="form-field"><span>词性</span><input id="fPos" placeholder="n / v / adj，多个用英文逗号" /></label>
+        <label class="form-field"><span>中文释义 *</span><input id="fMeanings" required placeholder="多个义项用中文分号；分隔，例如 不快乐的；不幸的" /></label>
+        <label class="form-field"><span>前缀</span><input id="fPrefixes" placeholder="例如 un-, re-" /></label>
+        <label class="form-field"><span>后缀</span><input id="fSuffixes" placeholder="例如 -able, -ment" /></label>
+      </div>
+      <p class="modal-note">自建词条会覆盖同名单词的内置词条，导出备份可通过浏览器数据面板完成。</p>
+      <div class="form-actions">
+        <button class="btn ghost" id="cancelModal" type="button">取消</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pasteModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pasteModalTitle">
+    <div class="modal-head">
+      <h3 id="pasteModalTitle">粘贴一批单词</h3>
+      <button class="modal-close" id="closePasteModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <p class="modal-note">每行一个单词，或直接粘贴一段英文（会按词切分）。释义自动取内置词库，不新增自建词条。</p>
+    <label class="paste-field">
+      <textarea id="pasteInput" rows="8" placeholder="例如：
+unlikely
+precaution
+The committee discussed the proposal yesterday." spellcheck="false"></textarea>
+    </label>
+    <div class="paste-preview" id="pastePreview"></div>
+    <div class="form-actions">
+      <button class="btn ghost" id="pasteCancel" type="button">取消</button>
+      <button class="btn primary" id="pasteStart" type="button" disabled>开始练习（0 词）</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="./words-core.js"></script>
+<script src="./words.js"></script>
+<script src="./roots-data.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

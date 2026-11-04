@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>视觉稿 · 主流规范 v3</title>
+<style>
+:root{
+  --bg:#F5F5F5; --surface:#FFFFFF; --surface2:#FAFAFA; --hover:#F5F5F5;
+  --border:#E5E7EB; --border2:#D9D9D9;
+  --text:#1F2329; --text2:#4E5969; --text3:#86909C;
+  --primary:#1677FF; --primary-hover:#4096FF; --primary-soft:#E6F4FF; --primary-line:#91CAFF;
+  --success:#00A870; --success-soft:#E8FFF4; --warn:#D25F00; --warn-soft:#FFF7E6; --danger:#E34D59; --danger-soft:#FEF0F0;
+  --r:8px; --r-sm:6px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="dark"]{
+  --bg:#141414; --surface:#1F1F1F; --surface2:#262626; --hover:#2A2A2A;
+  --border:#303030; --border2:#424242;
+  --text:#E8E8E8; --text2:#B8B8B8; --text3:#7A7A7A;
+  --primary:#3C89FA; --primary-hover:#65A9FF; --primary-soft:#162B45; --primary-line:#2C527C;
+  --success:#3DBE8B; --success-soft:#162C23; --warn:#E8A33D; --warn-soft:#2E2617; --danger:#F0797F; --danger-soft:#2F1D1E;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;-webkit-font-smoothing:antialiased}
+button,input,select{font-family:inherit;font-size:14px}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+svg{width:16px;height:16px;flex:none}
+
+.app{display:flex;height:100vh;min-height:600px}
+.sidebar{width:224px;flex:none;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:12px 8px}
+.brand{display:flex;align-items:center;gap:10px;padding:8px 12px 20px}
+.logo{width:30px;height:30px;border-radius:var(--r-sm);background:var(--primary);color:#fff;display:grid;place-items:center;font-size:15px;font-weight:600}
+.brand-txt b{display:block;font-size:14px;font-weight:600;line-height:1.35}
+.brand-txt small{display:block;font-size:11px;color:var(--text3);letter-spacing:.04em}
+.nav-label{font-size:11px;color:var(--text3);padding:14px 12px 6px}
+.nav-item{width:100%;height:38px;display:flex;align-items:center;gap:10px;border:0;background:none;color:var(--text2);padding:0 12px;border-radius:var(--r-sm);text-align:left;margin-bottom:2px}
+.nav-item:hover{background:var(--hover);color:var(--text)}
+.nav-item.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+.nav-item .badge{margin-left:auto;font-size:11px;color:var(--text3)}
+.sidebar-foot{margin-top:auto;padding:12px 12px 4px;border-top:1px solid var(--border)}
+.status{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-bottom:10px}
+.status i{width:6px;height:6px;border-radius:50%;background:var(--success);display:block}
+.theme-btn{width:100%;height:32px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);border-radius:var(--r-sm);font-size:12px}
+.theme-btn:hover{border-color:var(--primary);color:var(--primary)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:56px;flex:none;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;padding:0 24px}
+.crumb{font-size:13px;color:var(--text3)}
+.crumb b{color:var(--text);font-weight:500}
+.top-search{margin-left:auto;display:flex;align-items:center;gap:8px;border:1px solid var(--border2);background:var(--surface);border-radius:var(--r-sm);padding:0 10px;height:32px;width:240px;color:var(--text3)}
+.top-search input{border:0;background:none;outline:0;color:var(--text);width:100%;font-size:13px}
+.top-search input::placeholder{color:var(--text3)}
+.top-search:focus-within{border-color:var(--primary)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-size:12px;font-weight:600}
+
+.content{flex:1;overflow:auto;padding:20px 24px 32px}
+.view{max-width:1240px;margin:0 auto}
+.view[hidden]{display:none}
+.page-head{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.page-head h1{font-size:20px;font-weight:600;margin:0 0 4px;line-height:1.4}
+.page-head p{font-size:13px;color:var(--text2);margin:0}
+.head-actions{margin-left:auto;display:flex;gap:8px}
+
+.btn{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border2);background:var(--surface);color:var(--text);padding:0 14px;border-radius:var(--r-sm);font-size:13px;white-space:nowrap}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);color:#fff}
+.btn.sm{height:30px;padding:0 10px;font-size:12px}
+.btn.ghost{border-color:transparent;background:none;color:var(--text2)}
+.btn.ghost:hover{background:var(--hover);color:var(--text)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:disabled:hover{border-color:var(--border2);color:var(--text)}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
+.card-head{height:52px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--border)}
+.card-head h2{font-size:14px;font-weight:600;margin:0}
+.card-head .sub{font-size:12px;color:var(--text3)}
+.card-head .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.card-body{padding:16px}
+
+.toolbar{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;padding:16px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:12px;color:var(--text2)}
+.field select,.field input{height:36px;border:1px solid var(--border2);background:var(--surface);color:var(--text);border-radius:var(--r-sm);padding:0 10px;font-size:13px;min-width:150px}
+.field select{cursor:pointer}
+.field select:focus,.field input:focus{border-color:var(--primary);outline:0;box-shadow:0 0 0 2px rgba(22,119,255,.1)}
+.toolbar .spacer{flex:1}
+.switch-row{display:flex;align-items:center;gap:8px;height:36px;font-size:13px;color:var(--text2)}
+.switch{width:36px;height:20px;border-radius:10px;background:var(--border2);position:relative;display:inline-block;flex:none;cursor:pointer}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.16s}
+.switch.on{background:var(--primary)}
+.switch.on::after{left:18px}
+
+.two-col{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+.group{margin-bottom:18px}
+.group:last-child{margin-bottom:0}
+.group-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.group-head b{font-size:13px;font-weight:500}
+.group-head span{font-size:12px;color:var(--text3)}
+.group-head .more{margin-left:auto;border:0;background:none;color:var(--primary);font-size:12px;padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{height:28px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);border-radius:var(--r-sm);padding:0 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px}
+.chip small{font-size:11px;color:var(--text3)}
+.chip:hover{border-color:var(--primary);color:var(--primary)}
+.chip.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)}
+.chip.on small{color:var(--primary)}
+.more-grid{display:flex;gap:12px;flex-wrap:wrap}
+.more-grid .field select,.more-grid .field input{min-width:130px}
+
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.kpi{border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 16px;background:var(--surface)}
+.kpi span{font-size:12px;color:var(--text3)}
+.kpi b{display:block;font-size:24px;font-weight:600;line-height:1.3;margin-top:6px;letter-spacing:-.01em}
+.alert{display:flex;align-items:center;gap:10px;margin-top:14px;padding:10px 12px;background:var(--primary-soft);border:1px solid var(--primary-line);border-radius:var(--r-sm);font-size:13px;color:var(--text2)}
+.alert b{font-size:16px;color:var(--primary);font-weight:600}
+.alert .btn{margin-left:auto}
+.note{font-size:12px;color:var(--text3);line-height:1.7;margin-top:12px}
+
+table{width:100%;border-collapse:collapse}
+th{height:44px;text-align:left;font-size:12px;font-weight:500;color:var(--text2);padding:0 16px;border-bottom:1px solid var(--border);background:var(--surface2);white-space:nowrap}
+td{height:48px;padding:0 16px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--hover)}
+.wd{font-weight:500;font-size:13.5px}
+.ph{font-size:12px;color:var(--text3)}
+.mn{color:var(--text2)}
+.tag{display:inline-block;border:1px solid var(--border);background:var(--surface2);color:var(--text2);border-radius:4px;padding:1px 6px;font-size:11px;margin-right:4px;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor;display:block}
+.pill.new{color:var(--primary)}
+.pill.learning{color:var(--warn)}
+.pill.done{color:var(--success)}
+.row-ops{display:flex;gap:6px;justify-content:flex-end}
+.icon-btn{border:0;background:none;color:var(--text3);width:28px;height:28px;border-radius:var(--r-sm);display:grid;place-items:center;padding:0}
+.icon-btn:hover{background:var(--primary-soft);color:var(--primary)}
+.table-foot{height:52px;display:flex;align-items:center;gap:10px;padding:0 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text3)}
+.table-foot .right{margin-left:auto;display:flex;gap:6px;align-items:center}
+.page-num{height:28px;min-width:28px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);border-radius:var(--r-sm);font-size:12px}
+.page-num.on{border-color:var(--primary);color:var(--primary);background:var(--primary-soft)}
+
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px}
+.overlay[hidden]{display:none}
+.modal{width:560px;max-width:100%;background:var(--surface);border-radius:var(--r);box-shadow:0 6px 24px rgba(0,0,0,.14);overflow:hidden}
+.modal-head{height:52px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border)}
+.modal-head b{font-size:14px;font-weight:600}
+.modal-head .n{font-size:12px;color:var(--text3)}
+.modal-head .x{margin-left:auto;border:0;background:none;color:var(--text3);font-size:19px;line-height:1;padding:0}
+.modal-body{padding:20px}
+.kicker{font-size:12px;color:var(--text3);margin:0 0 12px}
+.word-row{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.word-row b{font-size:28px;font-weight:600;letter-spacing:-.01em}
+.sound{height:28px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);border-radius:var(--r-sm);padding:0 9px;font-size:12px;display:inline-flex;align-items:center;gap:5px}
+.sound:hover{border-color:var(--primary);color:var(--primary)}
+.sound svg{width:13px;height:13px}
+.opts{display:flex;flex-direction:column;gap:8px;margin-top:20px}
+.opt{height:42px;display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:var(--r-sm);padding:0 12px;text-align:left;font-size:13px;width:100%}
+.opt:hover{border-color:var(--primary)}
+.opt .k{width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);display:grid;place-items:center;font-size:11px;color:var(--text3);flex:none}
+.opt.on{border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
+.opt.on .k{border-color:var(--primary);background:var(--primary);color:#fff}
+.modal-foot{height:60px;display:flex;align-items:center;gap:10px;padding:0 20px;border-top:1px solid var(--border)}
+.modal-foot .hint{font-size:12px;color:var(--text3)}
+.modal-foot .right{margin-left:auto;display:flex;gap:8px}
+
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:.2s;z-index:15}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:400px;max-width:92vw;background:var(--surface);z-index:16;transform:translateX(100%);transition:transform .24s ease;overflow-y:auto;box-shadow:-4px 0 16px rgba(0,0,0,.08)}
+.drawer.on{transform:none}
+.drawer-head{height:52px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--border)}
+.drawer-head b{font-size:14px;font-weight:600}
+.drawer-head .x{margin-left:auto;border:0;background:none;color:var(--text3);font-size:19px;padding:0}
+.drawer-body{padding:20px}
+.drawer-body h3{font-size:24px;font-weight:600;margin:0 0 10px}
+.meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.sec{border-top:1px solid var(--border);padding-top:14px;margin-top:16px}
+.sec h4{font-size:12px;color:var(--text3);font-weight:500;margin:0 0 10px}
+.sec p{font-size:13px;line-height:1.7;color:var(--text2);margin:0 0 6px}
+.sec .big{font-size:15px;color:var(--text)}
+.kv{display:flex;justify-content:space-between;font-size:12.5px;padding:8px 0;border-bottom:1px dashed var(--border)}
+.kv span{color:var(--text3)}
+.kv b{font-weight:500;color:var(--text)}
+.drawer-actions{display:flex;gap:8px;margin-top:22px}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);background:var(--text);color:var(--surface);font-size:13px;padding:9px 16px;border-radius:var(--r-sm);opacity:0;pointer-events:none;transition:.2s;z-index:30}
+.toast.on{opacity:1;transform:translateX(-50%)}
+
+@media(max-width:1000px){.two-col{grid-template-columns:1fr}.sidebar{width:60px}.brand-txt,.nav-label,.nav-item span,.nav-item .badge,.sidebar-foot .status,.theme-btn{display:none}.nav-item{justify-content:center}.content{padding:16px}}
+@media(max-width:640px){.toolbar{gap:12px}.page-head{flex-wrap:wrap}.head-actions{margin-left:0}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">词</div><div class="brand-txt"><b>单词翻译练习台</b><small>WORD DESK</small></div></div>
+    <div class="nav-label">工作台</div>
+    <button class="nav-item on" data-view="practice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M18 16l2 2 3-4"/></svg><span>练词</span></button>
+    <button class="nav-item" data-view="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 0 4 23.5z"/><path d="M4 5.5v16M8 7h8"/></svg><span>词库</span><span class="badge">3403</span></button>
+    <button class="nav-item" data-view="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>学习数据</span></button>
+    <div class="nav-label">复习</div>
+    <button class="nav-item" data-view="wrong"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg><span>错题本</span><span class="badge">8</span></button>
+    <button class="nav-item" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M4 12a8 8 0 0 1 .3-2.1l-1.8-1.4 2-3.4 2.1.9A8 8 0 0 1 9 4.6L9.3 2h4l.3 2.6a8 8 0 0 1 2.4 1.4l2.1-.9 2 3.4-1.8 1.4a8 8 0 0 1 0 4.2l1.8 1.4-2 3.4-2.1-.9a8 8 0 0 1-2.4 1.4L13.3 22h-4L9 19.4a8 8 0 0 1-2.4-1.4l-2.1.9-2-3.4L4.3 14A8 8 0 0 1 4 12z"/></svg><span>设置</span></button>
+    <div class="sidebar-foot"><div class="status"><i></i>本地数据 · 无需登录</div><button class="theme-btn" id="themeBtn">切换深浅主题</button></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb">工作台 <span>/</span> <b id="crumb">练词</b></div>
+      <label class="top-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="topSearch" placeholder="搜索单词或释义" /></label>
+      <div class="avatar">楠</div>
+    </header>
+
+    <div class="content">
+      <section class="view" id="view-practice">
+        <div class="page-head"><div><h1>练词</h1><p>设定范围与答题方式，从当前词库生成一轮练习。</p></div><div class="head-actions"><button class="btn" id="savePreset">保存为常用</button><button class="btn primary" id="startBtn">开始练习</button></div></div>
+
+        <div class="card"><div class="toolbar">
+          <div class="field"><label>翻译方向</label><select><option>英译中</option><option>中译英</option></select></div>
+          <div class="field"><label>答题方式</label><select><option>四选一</option><option>自己输入</option></select></div>
+          <div class="field"><label>取词范围</label><select><option>今日复习计划</option><option>全库随机</option><option>当前筛选</option></select></div>
+          <div class="field"><label>题量</label><select><option>10 题</option><option>20 题</option><option>全部</option></select></div>
+          <div class="switch-row"><span class="switch on" id="shuffleSw"></span>打乱顺序</div>
+          <div class="spacer"></div>
+          <div class="field"><label>每日新词上限</label><input type="number" value="10" style="min-width:88px" /></div>
+        </div></div>
+
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head"><h2>选词条件</h2><span class="sub">可多选，条件之间取交集</span><div class="right"><button class="btn sm ghost" id="clearTags">清空</button></div></div>
+            <div class="card-body">
+              <div class="group"><div class="group-head"><b>前缀</b><span>47 个</span><button class="more">查看全部</button></div><div class="chips"><button class="chip on">un-<small>16</small></button><button class="chip">re-<small>9</small></button><button class="chip">pre-<small>8</small></button><button class="chip">dis-<small>6</small></button><button class="chip">inter-<small>5</small></button><button class="chip">over-<small>4</small></button><button class="chip">sub-<small>4</small></button></div></div>
+              <div class="group"><div class="group-head"><b>后缀</b><span>42 个</span><button class="more">查看全部</button></div><div class="chips"><button class="chip">-ion<small>17</small></button><button class="chip">-able<small>15</small></button><button class="chip">-ment<small>9</small></button><button class="chip">-ity<small>8</small></button><button class="chip">-ous<small>7</small></button><button class="chip">-ive<small>6</small></button></div></div>
+              <div class="group"><div class="group-head"><b>词根</b><span>74 个</span><button class="more">查看全部</button></div><div class="chips"><button class="chip">ag<small>6</small></button><button class="chip">form<small>4</small></button><button class="chip">vid<small>4</small></button><button class="chip">graph<small>3</small></button><button class="chip">cycl<small>3</small></button><button class="chip">ven<small>3</small></button></div></div>
+              <div class="group"><div class="group-head"><b>更多条件</b></div><div class="more-grid"><div class="field"><label>词性</label><select><option>全部</option></select></div><div class="field"><label>首字母</label><select><option>全部</option></select></div><div class="field"><label>关键词</label><input placeholder="单词或释义" /></div></div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>今日计划</h2><span class="sub">11 月 4 日</span></div>
+            <div class="card-body">
+              <div class="kpi-grid">
+                <div class="kpi"><span>待复习</span><b>12</b></div>
+                <div class="kpi"><span>新词额度</span><b>10</b></div>
+                <div class="kpi"><span>连续天数</span><b>6</b></div>
+                <div class="kpi"><span>近 14 天正确率</span><b>84%</b></div>
+              </div>
+              <div class="alert"><b>16</b><span>当前条件命中词条</span><button class="btn sm" id="hitBtn">查看</button></div>
+              <p class="note">不加条件时默认使用今日复习计划。命中词少于 4 个时，四选一会自动减少选项。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>命中词条</h2><span class="sub" id="rowCount">6 条</span><div class="right"><button class="btn sm">导出</button><button class="btn sm">列设置</button></div></div>
+          <table>
+            <thead><tr><th style="width:150px">单词</th><th style="width:155px">音标</th><th>释义</th><th style="width:130px">构词</th><th style="width:96px">掌握度</th><th style="width:80px"></th></tr></thead>
+            <tbody id="wordRows">
+              <tr data-word="unhappy"><td class="wd">unhappy</td><td class="ph">/ʌnˈhæpi/</td><td class="mn">不快乐的；不幸的</td><td><span class="tag">un-</span></td><td><span class="pill new"><i></i>新词</span></td><td><div class="row-ops"><button class="icon-btn sound" title="发音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button><button class="icon-btn" title="单题重练"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></td></tr>
+              <tr data-word="unpredictable"><td class="wd">unpredictable</td><td class="ph">/ˌʌnprɪˈdɪktəbl/</td><td class="mn">无法预测的；捉摸不定的</td><td><span class="tag">un-</span><span class="tag">-able</span></td><td><span class="pill learning"><i></i>复习中</span></td><td><div class="row-ops"><button class="icon-btn sound" title="发音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button><button class="icon-btn" title="单题重练"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></td></tr>
+              <tr data-word="rewrite"><td class="wd">rewrite</td><td class="ph">/ˌriːˈraɪt/</td><td class="mn">重写；改写</td><td><span class="tag">re-</span></td><td><span class="pill done"><i></i>已掌握</span></td><td><div class="row-ops"><button class="icon-btn sound" title="发音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button><button class="icon-btn" title="单题重练"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></td></tr>
+              <tr data-word="precaution"><td class="wd">precaution</td><td class="ph">/prɪˈkɔːʃn/</td><td class="mn">预防措施；谨慎</td><td><span class="tag">pre-</span><span class="tag">-ion</span></td><td><span class="pill learning"><i></i>复习中</span></td><td><div class="row-ops"><button class="icon-btn sound" title="发音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button><button class="icon-btn" title="单题重练"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></td></tr>
+              <tr data-word="retroactive"><td class="wd">retroactive</td><td class="ph">/ˌretrəʊˈæktɪv/</td><td class="mn">追溯的；有追溯效力的</td><td><span class="tag">ag</span><span class="tag">-ive</span></td><td><span class="pill new"><i></i>新词</span></td><td><div class="row-ops"><button class="icon-btn sound" title="发音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button><button class="icon-btn" title="单题重练"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></td></tr>
+              <tr data-word="disagree"><td class="wd">disagree</td><td class="ph">/ˌdɪsəˈɡriː/</td><td class="mn">不同意；意见不合</td><td><span class="tag">dis-</span></td><td><span class="pill done"><i></i>已掌握</span></td><td><div class="row-ops"><button class="icon-btn sound" title="发音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button><button class="icon-btn" title="单题重练"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></td></tr>
+            </tbody>
+          </table>
+          <div class="table-foot">共 16 条<div class="right"><button class="page-num">‹</button><button class="page-num on">1</button><button class="page-num">2</button><button class="page-num">3</button><button class="page-num">›</button></div></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-library" hidden>
+        <div class="page-head"><div><h1>词库</h1><p>浏览、检索和维护词条，共 3,403 词。</p></div><div class="head-actions"><button class="btn">导入词表</button><button class="btn">导出备份</button><button class="btn primary">新增词条</button></div></div>
+        <div class="card"><div class="toolbar"><div class="field"><label>关键词</label><input placeholder="单词或中文释义" /></div><div class="field"><label>词性</label><select><option>全部词性</option></select></div><div class="field"><label>考试标签</label><select><option>全部</option><option>高考</option><option>CET6</option><option>TOEFL</option></select></div><div class="field"><label>掌握度</label><select><option>全部</option></select></div><div class="field"><label>来源</label><select><option>全部</option><option>仅内置</option><option>仅我的</option></select></div><div class="spacer"></div><button class="btn">查询</button><button class="btn">重置</button></div></div>
+        <div class="card"><div class="card-head"><h2>词条列表</h2><span class="sub">按字母排序</span><div class="right"><button class="btn sm">批量操作</button></div></div>
+          <table><thead><tr><th style="width:160px">单词</th><th style="width:155px">音标</th><th>释义</th><th style="width:130px">标签</th><th style="width:90px">词频</th><th style="width:100px">掌握度</th></tr></thead><tbody>
+            <tr data-word="abandon"><td class="wd">abandon</td><td class="ph">/əˈbændən/</td><td class="mn">放弃，抛弃；放任</td><td><span class="tag">高考</span><span class="tag">中考</span></td><td class="ph">#2130</td><td><span class="pill new"><i></i>新词</span></td></tr>
+            <tr data-word="ability"><td class="wd">ability</td><td class="ph">/əˈbɪləti/</td><td class="mn">能力；才能</td><td><span class="tag">高考</span></td><td class="ph">#1184</td><td><span class="pill done"><i></i>已掌握</span></td></tr>
+            <tr data-word="unpredictable"><td class="wd">unpredictable</td><td class="ph">/ˌʌnprɪˈdɪktəbl/</td><td class="mn">无法预测的；捉摸不定的</td><td><span class="tag">un-</span><span class="tag">-able</span></td><td class="ph">#6820</td><td><span class="pill learning"><i></i>复习中</span></td></tr>
+            <tr data-word="precaution"><td class="wd">precaution</td><td class="ph">/prɪˈkɔːʃn/</td><td class="mn">预防措施；谨慎</td><td><span class="tag">CET6</span></td><td class="ph">#5400</td><td><span class="pill learning"><i></i>复习中</span></td></tr>
+            <tr data-word="very"><td class="wd">very</td><td class="ph">/ˈveri/</td><td class="mn">真正的，恰好的；非常</td><td><span class="tag">高考</span><span class="tag">中考</span></td><td class="ph">#80</td><td><span class="pill done"><i></i>已掌握</span></td></tr>
+          </tbody></table><div class="table-foot">共 3,403 条<div class="right"><button class="page-num">‹</button><button class="page-num on">1</button><button class="page-num">2</button><button class="page-num">…</button><button class="page-num">›</button></div></div></div>
+      </section>
+
+      <section class="view" id="view-stats" hidden>
+        <div class="page-head"><div><h1>学习数据</h1><p>复习进度与正确率概览。</p></div><div class="head-actions"><button class="btn">导出进度</button></div></div>
+        <div class="two-col" style="grid-template-columns:repeat(4,1fr);gap:16px">
+          <div class="card"><div class="card-body"><div class="kpi" style="border:0;padding:0"><span>累计复习次数</span><b>1,284</b></div></div></div>
+          <div class="card"><div class="card-body"><div class="kpi" style="border:0;padding:0"><span>总正确率</span><b>84%</b></div></div></div>
+          <div class="card"><div class="card-body"><div class="kpi" style="border:0;padding:0"><span>错题本词条</span><b>8</b></div></div></div>
+          <div class="card"><div class="card-body"><div class="kpi" style="border:0;padding:0"><span>连续练习</span><b>6 天</b></div></div></div>
+        </div>
+        <div class="card"><div class="card-head"><h2>近 14 天正确率</h2><span class="sub">按日统计</span></div><div class="card-body"><div style="display:flex;align-items:flex-end;gap:10px;height:160px;border-bottom:1px solid var(--border)">
+          <div style="flex:1;background:var(--primary-soft);height:62%"></div><div style="flex:1;background:var(--primary-soft);height:74%"></div><div style="flex:1;background:var(--primary-soft);height:58%"></div><div style="flex:1;background:var(--primary-soft);height:81%"></div><div style="flex:1;background:var(--primary-soft);height:70%"></div><div style="flex:1;background:var(--primary-soft);height:88%"></div><div style="flex:1;background:var(--primary-soft);height:76%"></div><div style="flex:1;background:var(--primary-soft);height:92%"></div><div style="flex:1;background:var(--primary-soft);height:68%"></div><div style="flex:1;background:var(--primary-soft);height:85%"></div><div style="flex:1;background:var(--primary-soft);height:79%"></div><div style="flex:1;background:var(--primary-soft);height:90%"></div><div style="flex:1;background:var(--primary-soft);height:83%"></div><div style="flex:1;background:var(--primary);height:84%"></div>
+        </div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);padding-top:8px"><span>10/22</span><span>10/29</span><span>11/04</span></div></div></div>
+      </section>
+
+      <section class="view" id="view-wrong" hidden><div class="page-head"><div><h1>错题本</h1><p>练习中答错的词会自动收进来，答对后移出。</p></div></div><div class="card"><div class="card-body" style="color:var(--text2);font-size:13px">示意页。列表结构与词库一致，增加「错误次数」与「重练」操作。</div></div></section>
+      <section class="view" id="view-settings" hidden><div class="page-head"><div><h1>设置</h1><p>练习偏好、发音来源与本地数据管理。</p></div></div><div class="card"><div class="card-body" style="color:var(--text2);font-size:13px">示意页。包含每日新词上限、发音口音、音频授权说明、清除本地数据。</div></div></section>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="quizOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head"><b>练习</b><span class="n">第 3 题 / 共 12 题</span><button class="x" id="quizClose">×</button></div>
+    <div class="modal-body">
+      <p class="kicker">选出正确的中文释义</p>
+      <div class="word-row"><b>unpredictable</b><span class="ph">/ˌʌnprɪˈdɪktəbl/</span><button class="sound" data-sound><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg>发音</button></div>
+      <div class="opts">
+        <button class="opt" data-opt><span class="k">A</span>可以预料的；意料之中的</button>
+        <button class="opt" data-opt><span class="k">B</span>无法预测的；捉摸不定的</button>
+        <button class="opt" data-opt><span class="k">C</span>未被证实的；缺乏依据的</button>
+        <button class="opt" data-opt><span class="k">D</span>不再使用的；已废弃的</button>
+      </div>
+    </div>
+    <div class="modal-foot"><span class="hint">按 A–D 选择，Enter 提交</span><div class="right"><button class="btn" id="skipBtn">跳过</button><button class="btn primary" id="submitBtn">提交答案</button></div></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="wordDrawer">
+  <div class="drawer-head"><b>词条详情</b><button class="x" id="drawerClose">×</button></div>
+  <div class="drawer-body">
+    <h3 id="dWord">unpredictable</h3>
+    <div class="meta-row"><span class="ph">/ˌʌnprɪˈdɪktəbl/</span><button class="sound" data-sound><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg>英式发音</button><button class="sound" data-sound><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg>澳式发音</button></div>
+    <div class="sec"><h4>中文释义</h4><p class="big">无法预测的；捉摸不定的</p></div>
+    <div class="sec"><h4>构词拆解</h4><p><span class="tag">un-</span> 否定　<span class="tag">predict</span> 预言　<span class="tag">-able</span> 可…的</p></div>
+    <div class="sec"><h4>例句</h4><p style="font-style:italic">The weather here is notoriously unpredictable.</p><p style="font-size:11px;color:var(--text3)">例句与英文释义来自词典数据，待接入</p></div>
+    <div class="sec"><h4>词条信息</h4>
+      <div class="kv"><span>词性</span><b>adj</b></div><div class="kv"><span>词频排名</span><b>#6820</b></div><div class="kv"><span>考试标签</span><b>CET6 / TOEFL</b></div><div class="kv"><span>掌握度</span><b>复习中 · 稳定度 3.2 天</b></div><div class="kv"><span>下次复习</span><b>3 天后</b></div>
+    </div>
+    <div class="drawer-actions"><button class="btn primary" id="drillOne">单题重练</button><button class="btn">加入错题本</button><button class="btn">编辑</button></div>
+  </div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=(s)=>document.querySelector(s), $$=(s)=>Array.from(document.querySelectorAll(s));
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),1700)}
+const names={practice:'练词',library:'词库',stats:'学习数据',wrong:'错题本',settings:'设置'};
+function view(v){$$('.view').forEach(x=>x.hidden=x.id!=='view-'+v);$$('.nav-item').forEach(b=>b.classList.toggle('on',b.dataset.view===v));$('#crumb').textContent=names[v]||'练词'}
+$$('.nav-item').forEach(b=>b.addEventListener('click',()=>view(b.dataset.view)));
+$$('.chip').forEach(c=>c.addEventListener('click',()=>c.classList.toggle('on')));
+$('#clearTags').addEventListener('click',()=>{$$('.chip').forEach(c=>c.classList.remove('on'));toast('已清空选词条件')});
+$('#shuffleSw').addEventListener('click',e=>e.currentTarget.classList.toggle('on'));
+$('#savePreset').addEventListener('click',()=>toast('已保存为常用配置'));
+$('#hitBtn').addEventListener('click',()=>$('#view-practice table').scrollIntoView({behavior:'smooth',block:'center'}));
+$('#startBtn').addEventListener('click',()=>{$('#quizOverlay').hidden=false});
+$('#quizClose').addEventListener('click',()=>{$('#quizOverlay').hidden=true});
+$('#skipBtn').addEventListener('click',()=>toast('已跳过，本题计入错题'));
+$('#submitBtn').addEventListener('click',()=>toast('提交后进入结果页'));
+$$('[data-opt]').forEach(b=>b.addEventListener('click',()=>{$$('[data-opt]').forEach(x=>x.classList.remove('on'));b.classList.add('on')}));
+$$('[data-sound]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();toast('接入后播放真人发音，可离线重放')}));
+$$('.icon-btn').forEach(b=>b.addEventListener('click',e=>e.stopPropagation()));
+$$('tbody tr').forEach(tr=>tr.addEventListener('click',()=>{$('#dWord').textContent=tr.dataset.word||tr.querySelector('.wd')?.textContent||'';$('#scrim').classList.add('on');$('#wordDrawer').classList.add('on')}));
+$('#drawerClose').addEventListener('click',()=>{$('#scrim').classList.remove('on');$('#wordDrawer').classList.remove('on')});
+$('#scrim').addEventListener('click',()=>{$('#scrim').classList.remove('on');$('#wordDrawer').classList.remove('on')});
+$('#drillOne').addEventListener('click',()=>{$('#scrim').classList.remove('on');$('#wordDrawer').classList.remove('on');$('#quizOverlay').hidden=false});
+$('#themeBtn').addEventListener('click',()=>{const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'});
+$('#topSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();let n=0;$$('#wordRows tr').forEach(tr=>{const hit=!q||tr.textContent.toLowerCase().includes(q);tr.style.display=hit?'':'none';if(hit)n++});$('#rowCount').textContent=n+' 条'});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#quizOverlay').hidden=true;$('#scrim').classList.remove('on');$('#wordDrawer').classList.remove('on')}});
+</script>
+</body>
+</html>
