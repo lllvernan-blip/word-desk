@@ -61,15 +61,15 @@
 
 :root[data-theme="dark"] {
     color-scheme: dark;
-    --paper: #141713;
-    --sheet: #1b1f1a;
-    --sheet-2: #212620;
+    --paper: #151318;
+    --sheet: #1c1a20;
+    --sheet-2: #232129;
     --ink: #e9e5d9;
-    --ink-2: #c9c5b8;
-    --muted: #9aa092;
-    --faint: #8b9284;
-    --line: #3a4138;
-    --line-strong: #454d40;
+    --ink-2: #c9c6c2;
+    --muted: #9c99a4;
+    --faint: #8e8b96;
+    --line: #3d3a44;
+    --line-strong: #484452;
 
     --brand: #c2b2f2;
     --brand-ink: #141020;
@@ -1305,6 +1305,11 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   border-top: 1px solid var(--line);
 }
 
+.app-version {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -2223,4 +2228,13 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
 @media (max-width: 900px) {
   .picker-cta { grid-template-columns: 1fr; gap: 16px; }
   .picker-sheet { padding: 24px 20px 20px; }
+}
+
+/* 暗色下选中态要看得见：selection 与选项选中都提亮 */
+:root[data-theme="dark"] ::selection { background: #5e5774; }
+:root[data-theme="dark"] .choice.selected { background: #3a3546; }
+
+/* 移动端底部 tabbar 固定，footer 要留出它的高度 */
+@media (max-width: 920px) {
+  .footer { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
