@@ -1,0 +1,29 @@
+{
+  "id": "./",
+  "name": "单词翻译练习台",
+  "short_name": "词练台",
+  "description": "3400 个内置词按前后缀筛选，做中英互译练习，配合间隔重复复习的离线单词应用",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#f2efe7",
+  "theme_color": "#f2efe7",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "开始今日复习",
+      "short_name": "今日复习",
+      "url": "./index.html?action=review",
+      "description": "打开后直接进入到期复习队列"
+    }
+  ]
+}

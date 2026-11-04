@@ -1,0 +1,90 @@
+[
+  {
+    "word": "antiviral",
+    "meaning": "抗病毒的；抗病毒药",
+    "pos": "adj,n",
+    "prefixes": ["anti-"],
+    "suffixes": ["-al"],
+    "phonetic": "/ˌæntiˈvaɪrəl/",
+    "freqRank": 6200,
+    "examTags": ["TOEFL"],
+    "affixConfidence": { "anti-": 0.9, "-al": 0.7 }
+  },
+  {
+    "word": "bilingual",
+    "meaning": "双语的；会说两种语言的",
+    "pos": "adj",
+    "prefixes": ["bi-"],
+    "suffixes": ["-al"],
+    "phonetic": "/ˌbaɪˈlɪŋɡwəl/",
+    "freqRank": 5400,
+    "examTags": ["CET6"],
+    "affixConfidence": { "bi-": 0.7, "-al": 0.7 }
+  },
+  {
+    "word": "semiautomatic",
+    "meaning": "半自动的",
+    "pos": "adj",
+    "prefixes": ["semi-"],
+    "suffixes": ["-ic"],
+    "phonetic": "/ˌsemiˌɔːtəˈmætɪk/",
+    "freqRank": 9800,
+    "examTags": [],
+    "affixConfidence": { "semi-": 0.85, "-ic": 0.7 }
+  },
+  {
+    "word": "supersonic",
+    "meaning": "超音速的",
+    "pos": "adj",
+    "prefixes": ["super-"],
+    "suffixes": ["-ic"],
+    "phonetic": "/ˌsuːpərˈsɑːnɪk/",
+    "freqRank": 7600,
+    "examTags": ["TOEFL"],
+    "affixConfidence": { "super-": 0.9, "-ic": 0.75 }
+  },
+  {
+    "word": "telecommunication",
+    "meaning": "电信；远程通信",
+    "pos": "n",
+    "prefixes": ["tele-"],
+    "suffixes": ["-ion"],
+    "phonetic": "/ˌtelikəˌmjuːnɪˈkeɪʃn/",
+    "freqRank": 4800,
+    "examTags": ["CET6"],
+    "affixConfidence": { "tele-": 0.9, "-ion": 0.9 }
+  },
+  {
+    "word": "nonfiction",
+    "meaning": "非虚构作品；纪实文学",
+    "pos": "n",
+    "prefixes": ["non-"],
+    "suffixes": ["-ion"],
+    "phonetic": "/nɑːnˈfɪkʃn/",
+    "freqRank": 7000,
+    "examTags": [],
+    "affixConfidence": { "non-": 0.9, "-ion": 0.9 }
+  },
+  {
+    "word": "prehistoric",
+    "meaning": "史前的；有史以前的",
+    "pos": "adj",
+    "prefixes": ["pre-"],
+    "suffixes": ["-ic"],
+    "phonetic": "/ˌpriːhɪˈstɔːrɪk/",
+    "freqRank": 6800,
+    "examTags": ["TOEFL"],
+    "affixConfidence": { "pre-": 0.9, "-ic": 0.75 }
+  },
+  {
+    "word": "transatlantic",
+    "meaning": "跨大西洋的",
+    "pos": "adj",
+    "prefixes": ["trans-"],
+    "suffixes": ["-ic"],
+    "phonetic": "/ˌtrænzətˈlæntɪk/",
+    "freqRank": 8100,
+    "examTags": ["GRE"],
+    "affixConfidence": { "trans-": 0.9, "-ic": 0.75 }
+  }
+]

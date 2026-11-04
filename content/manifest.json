@@ -1,0 +1,21 @@
+{
+  "version": "2026.11.04.1",
+  "updatedAt": "2026-11-04T09:00:00Z",
+  "note": "内置词库已升级为 400 精选 + ECDICT 核心 3000（words-core.js，随外壳离线缓存）；启动时仍请求 ./content/manifest.json，版本比本地缓存新时拉取 sources 词表与 roots 词根表，任何一步失败都静默回退内置副本。",
+  "roots": {
+    "url": "./roots.json",
+    "version": "2026.11.03.3",
+    "count": 74,
+    "note": "词根表 + 词条切分（教学层），内置副本在 ./roots-data.js"
+  },
+  "sources": [
+    {
+      "id": "core-extra",
+      "name": "扩展核心词",
+      "url": "./words-extra.json",
+      "format": "json",
+      "count": 8,
+      "sha256": ""
+    }
+  ]
+}
