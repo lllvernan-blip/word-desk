@@ -2254,8 +2254,9 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
   .speak-btn { min-height: 36px; padding: 5px 12px 5px 10px; }
 }
 
-/* ---------- 移动端输入框字号收口（放最后，覆盖各组件的 13/14px 规则） ---------- */
-@media (max-width: 920px) {
+/* ---------- 移动端输入框字号收口（放最后，覆盖各组件的 13/14px 规则）
+   16px 只为避免 iOS 聚焦时自动放大，所以限定触屏：桌面窄窗口不跟。 ---------- */
+@media (max-width: 920px) and (pointer: coarse) {
   input:not(.answer-input), select, textarea, .paste-field textarea { font-size: 16px; }
 }
 
