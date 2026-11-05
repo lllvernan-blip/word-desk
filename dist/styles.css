@@ -2259,3 +2259,8 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
 @media (max-width: 920px) {
   .footer { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
+
+/* 发音按钮在触屏上抬到 36px 命中区 */
+@media (max-width: 640px) {
+  .speak-btn { min-height: 36px; padding: 5px 12px 5px 10px; }
+}

@@ -16,7 +16,7 @@
 | `roots-data.js` | 词根数据离线兜底（脚本生成，**勿手改**） |
 | `content/` | 词库与词根的可热更新 JSON（manifest.json / roots.json / words-extra.json） |
 | `audio/` | 发音包：`pack-00.bin`～`pack-16.bin` 共 17 个分片 + `index.json` 索引，约 14.6 MB。前端按词查索引、用 HTTP Range 只取该词那几 KB，不下载整包；**播过的词会按词存进 Cache Storage（`wtp-audio-v{index.v}`），断网重载后仍可播放** |
-| `sw.js` | Service Worker，当前缓存版本 `wtp-shell-v31` |
+| `sw.js` | Service Worker，当前缓存版本 `wtp-shell-v33` |
 | `manifest.webmanifest` / `icons/` | PWA 清单与图标 |
 | `../tools/build-audio-bundles.py` | 把零散 mp3 打成 `audio/` 分片 + 索引（仓库根目录，不属于站点资源） |
 
@@ -33,7 +33,7 @@
 ## 修改规则
 
 1. 只在本目录的 `dist/` 里改，不要新建平行副本
-2. 改了任何静态资源（html/css/js/json）后，必须把 `sw.js` 里的 `CACHE = 'wtp-shell-vNN'` 版本号递增（当前 v32），否则用户端会一直拿旧缓存；`audio/` 的分片走 Range 请求、不经 Service Worker 缓存，但**重建音频包时必须让 `index.json` 的 `v` 递增**（词缓存名跟着 `v` 走，旧缓存会自动清掉），否则老客户端会拿旧索引按旧偏移切新分片
+2. 改了任何静态资源（html/css/js/json）后，必须把 `sw.js` 里的 `CACHE = 'wtp-shell-vNN'` 版本号递增（当前 v33），否则用户端会一直拿旧缓存；`audio/` 的分片走 Range 请求、不经 Service Worker 缓存，但**重建音频包时必须让 `index.json` 的 `v` 递增**（词缓存名跟着 `v` 走，旧缓存会自动清掉），否则老客户端会拿旧索引按旧偏移切新分片
 3. 改完先本地验证：`python3 -m http.server 8000 --directory dist`，浏览器打开 http://localhost:8000 检查主流程
 4. 改动完成后：Qoder 里的 agent 使用 sites-hosting 流程直接发布；非 Qoder 工具的 agent 只改文件，由用户回到 Qoder 说「发布」完成同步
 5. 发布前确认本次会话没有其他 agent 正在同时改这个目录，避免互相覆盖

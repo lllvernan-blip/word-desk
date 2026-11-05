@@ -1,7 +1,7 @@
 /* 单词翻译练习台 · Service Worker
    缓存应用外壳与词库内容，支持离线打开。
    注意：file:// 下 Service Worker 不生效，请通过 http(s) 访问。 */
-const CACHE = 'wtp-shell-v32';
+const CACHE = 'wtp-shell-v33';
 const CORE = [
   './',
   './index.html',
@@ -30,7 +30,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys
+        .filter((k) => k.startsWith('wtp-shell-') && k !== CACHE) // 只清旧壳，音频缓存按 index.v 由页面管
+        .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
