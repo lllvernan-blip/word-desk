@@ -340,6 +340,8 @@ function loadAudioUrl(key) {
   if (AUDIO.urls.has(key)) return Promise.resolve(AUDIO.urls.get(key));
   if (AUDIO.loading.has(key)) return AUDIO.loading.get(key);
   const task = (async () => {
+    // 缓存名跟着音频包版本（index.v）走，所以先拿到索引再查缓存；离线时索引走 SW 缓存
+    if (!AUDIO.cacheName) await loadAudioIndex();
     const name = AUDIO.cacheName || audioCacheName(1);
     const cachedBuf = await audioCacheRead(name, key);
     if (cachedBuf) return toAudioUrl(key, cachedBuf);
