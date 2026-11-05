@@ -2372,3 +2372,24 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
     border: 0;
   }
 }
+
+/* 平板宽度（641–920）：内容不再铺满整行，收成阅读列宽 */
+@media (min-width: 641px) and (max-width: 920px) {
+  .views { max-width: 760px; margin-left: auto; margin-right: auto; }
+  body.is-session .view-practice,
+  body.is-session .train-sheet { max-width: 680px; margin-left: auto; margin-right: auto; }
+}
+
+/* 横屏矮屏（≤540 高）：隐藏非必要行、压缩间距，让题干和前两个选项进首屏 */
+@media (max-height: 540px) and (max-width: 920px) {
+  body.is-session .views { padding-top: 6px; }
+  .session-filter { margin-bottom: 6px; padding: 8px 16px; }
+  .session-top { margin: -6px -16px 4px; padding: 6px 16px 4px; }
+  .stage-bar { display: none; }
+  .prompt-label { margin-bottom: 4px; }
+  .word-display { font-size: 30px; margin: 4px 0; }
+  .word-tools { margin: 2px 0; }
+  .hint-line { display: none; }
+  .choice { padding: 9px 14px; }
+  .action-row { margin-top: 10px; gap: 6px; }
+}
