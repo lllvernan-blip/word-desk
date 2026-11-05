@@ -86,80 +86,15 @@
         <div class="picker-empty" id="pickerEmpty" hidden></div>
         </div>
 
-        <details class="filter-drawer" id="filterDrawer">
-          <summary>
-            <span class="fd-title">分类筛选</span>
-            <span class="fd-meta" id="filterSummary"></span>
-          </summary>
-          <div class="filter-drawer-body">
-        <section class="affix-picker" aria-label="按分类选词">
-          <div class="affix-picker-head">
-            <label class="affix-search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-              <input id="affixSearch" type="search" placeholder="搜索词缀或词根" autocomplete="off" />
-            </label>
-          </div>
-
-          <details class="affix-group" id="prefixGroup" open>
-            <summary>
-              <span class="affix-group-name">前缀</span>
-              <span class="affix-group-meta" id="prefixGroupMeta">—</span>
-            </summary>
-            <div class="chip-row">
-              <div class="chip-wrap chips-pre" id="prefixChips"></div>
-              <button type="button" class="chip expand" data-expand="prefix" hidden>展开</button>
-            </div>
-          </details>
-
-          <details class="affix-group" id="suffixGroup" open>
-            <summary>
-              <span class="affix-group-name">后缀</span>
-              <span class="affix-group-meta" id="suffixGroupMeta">—</span>
-            </summary>
-            <div class="chip-row">
-              <div class="chip-wrap chips-suf" id="suffixChips"></div>
-              <button type="button" class="chip expand" data-expand="suffix" hidden>展开</button>
-            </div>
-          </details>
-
-          <details class="affix-group" id="rootGroup" open>
-            <summary>
-              <span class="affix-group-name">词根</span>
-              <span class="affix-group-meta" id="rootGroupMeta">—</span>
-            </summary>
-            <div class="chip-row">
-              <div class="chip-wrap chips-root" id="rootChips"></div>
-              <button type="button" class="chip expand" data-expand="root" hidden>展开</button>
-            </div>
-          </details>
-
-          <div class="affix-selected" id="affixSelected" hidden></div>
-        </section>
-        <details class="more-filters" id="moreFilters">
-          <summary>更多条件 <span class="hint" id="moreFilterCount"></span></summary>
-          <div class="more-grid">
-            <label class="field">
-              <span>关键词</span>
-              <input id="pickSearchInput" type="search" placeholder="单词或中文释义" autocomplete="off" />
-            </label>
-            <label class="field">
-              <span>词性</span>
-              <select id="pickPosSelect" aria-label="词性"><option value="">全部词性</option></select>
-            </label>
-            <label class="field">
-              <span>首字母</span>
-              <select id="pickLetterSelect" aria-label="首字母"><option value="">全部字母</option></select>
-            </label>
-            <div class="more-actions">
-              <button class="btn tiny ghost" id="pickClearFilters" type="button">清空条件</button>
-            </div>
-          </div>
-        </details>
-        <div class="paste-entry">
-          <button class="btn tiny" id="pasteResumeBtn" type="button" hidden>继续练上次粘贴的词</button>
+        <div class="picker-entries">
+          <button class="picker-entry-btn" id="filterOpenBtn" type="button">
+            <span class="pe-title">分类筛选</span>
+            <span class="pe-meta" id="filterSummary"></span>
+          </button>
+          <button class="picker-entry-btn" id="settingsOpenBtn" type="button">
+            <span class="pe-title">练习设置</span>
+          </button>
         </div>
-          </div>
-        </details>
 
         <div class="picker-secondary">
         <details class="root-drill" id="rootDrill" hidden>
@@ -170,46 +105,6 @@
           <div class="root-drill-body">
             <div class="root-chips" id="rootDrillChips"></div>
             <p class="hint" id="rootDrillHint"></p>
-          </div>
-        </details>
-        <details class="practice-settings">
-          <summary>练习设置</summary>
-          <div class="settings-grid">
-            <div class="setup-field">
-              <span class="field-label">猜义方式</span>
-              <div class="seg" id="answerSeg" role="group" aria-label="猜义方式">
-                <button type="button" data-answer="choice" class="active">四选一</button>
-                <button type="button" data-answer="input">自己输入</button>
-              </div>
-            </div>
-            <label class="field">
-              <span>题量（全库模式）</span>
-              <select id="countSelect" aria-label="题量">
-                <option value="10">10 题</option>
-                <option value="20">20 题</option>
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>每日新词上限</span>
-              <input type="number" id="dailyNewInput" min="0" max="15" step="1" inputmode="numeric" aria-label="每日新词上限" />
-            </label>
-            <label class="switch setup-switch"><input id="shuffleToggle" type="checkbox" checked /><span>打乱顺序</span></label>
-            <label class="switch setup-switch" id="followReadItem"><input id="followReadToggle" type="checkbox" /><span>结果页跟读自评</span></label>
-            <div class="setup-field audio-cache-field">
-              <span class="field-label">音频缓存</span>
-              <div class="audio-cache-row">
-                <span class="hint" id="audioCacheStat">统计中…</span>
-                <button class="btn tiny ghost" id="clearAudioCacheBtn" type="button">清理音频缓存</button>
-              </div>
-            </div>
-            <div class="setup-field audio-cache-field">
-              <span class="field-label">屏蔽词</span>
-              <div class="audio-cache-row">
-                <span class="hint" id="blockedStat">还未屏蔽任何词</span>
-                <button class="btn tiny ghost" id="unblockBtn" type="button" disabled>撤销最近一个</button>
-              </div>
-            </div>
           </div>
         </details>
         </div>
@@ -447,6 +342,138 @@
       </section>
     </section>
   </main>
+
+<!-- 分类筛选 / 练习设置：弹窗化，避免把选词页拉长 -->
+<div class="modal-overlay" id="filterModal" hidden>
+  <div class="modal filter-modal" role="dialog" aria-modal="true" aria-labelledby="filterModalTitle">
+    <div class="modal-head">
+      <h3 id="filterModalTitle">分类筛选</h3>
+      <button class="modal-close" id="closeFilterModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="filter-modal-body">
+        <section class="affix-picker" aria-label="按分类选词">
+          <div class="affix-picker-head">
+            <label class="affix-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              <input id="affixSearch" type="search" placeholder="搜索词缀或词根" autocomplete="off" />
+            </label>
+          </div>
+
+          <details class="affix-group" id="prefixGroup" open>
+            <summary>
+              <span class="affix-group-name">前缀</span>
+              <span class="affix-group-meta" id="prefixGroupMeta">—</span>
+            </summary>
+            <div class="chip-row">
+              <div class="chip-wrap chips-pre" id="prefixChips"></div>
+              <button type="button" class="chip expand" data-expand="prefix" hidden>展开</button>
+            </div>
+          </details>
+
+          <details class="affix-group" id="suffixGroup" open>
+            <summary>
+              <span class="affix-group-name">后缀</span>
+              <span class="affix-group-meta" id="suffixGroupMeta">—</span>
+            </summary>
+            <div class="chip-row">
+              <div class="chip-wrap chips-suf" id="suffixChips"></div>
+              <button type="button" class="chip expand" data-expand="suffix" hidden>展开</button>
+            </div>
+          </details>
+
+          <details class="affix-group" id="rootGroup" open>
+            <summary>
+              <span class="affix-group-name">词根</span>
+              <span class="affix-group-meta" id="rootGroupMeta">—</span>
+            </summary>
+            <div class="chip-row">
+              <div class="chip-wrap chips-root" id="rootChips"></div>
+              <button type="button" class="chip expand" data-expand="root" hidden>展开</button>
+            </div>
+          </details>
+
+          <div class="affix-selected" id="affixSelected" hidden></div>
+        </section>
+        <details class="more-filters" id="moreFilters">
+          <summary>更多条件 <span class="hint" id="moreFilterCount"></span></summary>
+          <div class="more-grid">
+            <label class="field">
+              <span>关键词</span>
+              <input id="pickSearchInput" type="search" placeholder="单词或中文释义" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>词性</span>
+              <select id="pickPosSelect" aria-label="词性"><option value="">全部词性</option></select>
+            </label>
+            <label class="field">
+              <span>首字母</span>
+              <select id="pickLetterSelect" aria-label="首字母"><option value="">全部字母</option></select>
+            </label>
+            <div class="more-actions">
+              <button class="btn tiny ghost" id="pickClearFilters" type="button">清空条件</button>
+            </div>
+          </div>
+        </details>
+        <div class="paste-entry">
+          <button class="btn tiny" id="pasteResumeBtn" type="button" hidden>继续练上次粘贴的词</button>
+        </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn ghost" id="filterModalCancel" type="button">取消</button>
+      <button class="btn primary" id="filterModalApply" type="button">应用筛选</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="settingsModal" hidden>
+  <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="modal-head">
+      <h3 id="settingsModalTitle">练习设置</h3>
+      <button class="modal-close" id="closeSettingsModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="settings-grid">
+            <div class="setup-field">
+              <span class="field-label">猜义方式</span>
+              <div class="seg" id="answerSeg" role="group" aria-label="猜义方式">
+                <button type="button" data-answer="choice" class="active">四选一</button>
+                <button type="button" data-answer="input">自己输入</button>
+              </div>
+            </div>
+            <label class="field">
+              <span>题量（全库模式）</span>
+              <select id="countSelect" aria-label="题量">
+                <option value="10">10 题</option>
+                <option value="20">20 题</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>每日新词上限</span>
+              <input type="number" id="dailyNewInput" min="0" max="15" step="1" inputmode="numeric" aria-label="每日新词上限" />
+            </label>
+            <label class="switch setup-switch"><input id="shuffleToggle" type="checkbox" checked /><span>打乱顺序</span></label>
+            <label class="switch setup-switch" id="followReadItem"><input id="followReadToggle" type="checkbox" /><span>结果页跟读自评</span></label>
+            <div class="setup-field audio-cache-field">
+              <span class="field-label">音频缓存</span>
+              <div class="audio-cache-row">
+                <span class="hint" id="audioCacheStat">统计中…</span>
+                <button class="btn tiny ghost" id="clearAudioCacheBtn" type="button">清理音频缓存</button>
+              </div>
+            </div>
+            <div class="setup-field audio-cache-field">
+              <span class="field-label">屏蔽词</span>
+              <div class="audio-cache-row">
+                <span class="hint" id="blockedStat">还未屏蔽任何词</span>
+                <button class="btn tiny ghost" id="unblockBtn" type="button" disabled>撤销最近一个</button>
+              </div>
+            </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" id="settingsModalDone" type="button">完成</button>
+    </div>
+  </div>
+</div>
+
 
   <footer class="footer">
     <span>数据保存在当前浏览器</span>
