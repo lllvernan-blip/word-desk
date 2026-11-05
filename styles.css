@@ -1797,26 +1797,6 @@ body.is-session .view-practice { max-width: 780px; }
   margin-top: 10px;
 }
 
-.practice-settings {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--line);
-}
-
-.practice-settings summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  list-style: none;
-  cursor: pointer;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.practice-settings summary::-webkit-details-marker { display: none; }
-.practice-settings summary::before { content: '+'; font-family: var(--font-mono); color: var(--brand); }
-.practice-settings[open] summary::before { content: '−'; }
-
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1826,7 +1806,6 @@ body.is-session .view-practice { max-width: 780px; }
 }
 
 .setup-switch { flex-direction: row; align-items: center; gap: 8px; }
-.practice-settings > p.hint { margin-top: 10px; line-height: 1.6; }
 .audio-cache-field { grid-column: 1 / -1; }
 .audio-cache-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .audio-cache-row .btn { flex: none; }
@@ -2112,24 +2091,6 @@ body.is-session .view-practice { max-width: 780px; }
 .picker-controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .direction-note { flex-basis: 100%; margin: 0; text-align: right; }
 
-/* 条件区：默认收起，展开才显分类 */
-.filter-drawer { margin-top: 18px; border-top: 1px solid var(--line); }
-.filter-drawer > summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 0 2px;
-  list-style: none;
-  cursor: pointer;
-  user-select: none;
-}
-.filter-drawer > summary::-webkit-details-marker { display: none; }
-.fd-title { font-size: 14px; font-weight: 600; color: var(--ink-2); }
-.fd-title::before { content: '\25B8'; margin-right: 8px; color: var(--faint); font-weight: 400; }
-.filter-drawer[open] .fd-title::before { content: '\25BE'; }
-.fd-meta { margin-left: auto; font-size: 12px; color: var(--brand); }
-.filter-drawer-body { padding: 12px 0 4px; }
-
 .affix-picker { margin-top: 0; padding: 0; border: 0; border-radius: 0; background: none; }
 .affix-picker-head { justify-content: flex-start; margin-bottom: 4px; }
 .affix-group:first-of-type { border-top: 0; }
@@ -2152,8 +2113,6 @@ body.is-session .view-practice { max-width: 780px; }
 .picker-secondary .root-drill[open] summary { border-bottom: 1px dashed var(--line); }
 .picker-secondary .rd-title { font-size: 12.5px; font-weight: 500; color: var(--muted); }
 .picker-secondary .root-drill-body { padding: 12px 0 4px; }
-.picker-secondary .practice-settings { margin-top: 0; padding-top: 6px; border-top: 0; }
-.picker-secondary .practice-settings summary { padding: 6px 0; }
 
 @media (max-width: 900px) {
   .picker-cta { align-items: stretch; }
@@ -2226,9 +2185,6 @@ html.edge-near::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, v
 .picker-controls { min-height: 32px; align-items: center; }
 .picker-controls .seg { min-height: 32px; align-items: center; }
 
-.filter-drawer { margin-top: 24px; }
-.filter-drawer > summary { min-height: 40px; padding: 12px 0 0; }
-.filter-drawer-body { padding: 16px 0 8px; }
 .affix-search { min-height: 36px; }
 .affix-group { margin-top: 16px; padding-top: 8px; }
 .affix-group summary { min-height: 24px; padding: 0 0 8px; align-items: center; }
@@ -2358,8 +2314,10 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
 }
 .picker-entry-btn:hover { border-color: var(--line-strong); background: var(--sheet-2); }
 .picker-entry-btn .pe-meta { color: var(--brand); font-size: 12px; }
-.filter-modal { max-width: 620px; }
-.filter-modal-body { overflow-y: auto; }
+.filter-modal { max-width: 620px; display: flex; flex-direction: column; overflow: hidden; }
+.filter-modal .modal-head { flex: none; }
+.filter-modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+.filter-modal .form-actions { flex: none; padding-top: 12px; }
 .settings-modal { max-width: 520px; }
 @media (max-width: 640px) {
   .modal-overlay#filterModal, .modal-overlay#settingsModal { padding: 0; }
@@ -2387,7 +2345,7 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
   .session-top { margin: -6px -16px 4px; padding: 6px 16px 4px; }
   .stage-bar { display: none; }
   .prompt-label { margin-bottom: 4px; }
-  .word-display { font-size: 30px; margin: 4px 0; }
+  .word-display.small { font-size: 30px; margin: 4px 0; }
   .word-tools { margin: 2px 0; }
   .hint-line { display: none; }
   .choice { padding: 9px 14px; }

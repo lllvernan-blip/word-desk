@@ -3981,10 +3981,6 @@ function bindEvents() {
 
   $('clearAudioCacheBtn').addEventListener('click', clearAudioCache);
   $('unblockBtn').addEventListener('click', undoBlockedFromSettings);
-  const settingsPanel = document.querySelector('.practice-settings');
-  if (settingsPanel) {
-    settingsPanel.addEventListener('toggle', () => { if (settingsPanel.open) refreshAudioCacheStat(); });
-  }
 
   $('startPickerBtn').addEventListener('click', startFromPicker);
   $('cancelEditBtn').addEventListener('click', cancelPickerEdit);
@@ -4259,7 +4255,7 @@ function bindEvents() {
 
   /* 练习设置弹窗：设置本来就是即时生效，弹窗只当容器 */
   if ($('settingsOpenBtn')) {
-    $('settingsOpenBtn').addEventListener('click', () => { $('settingsModal').hidden = false; });
+    $('settingsOpenBtn').addEventListener('click', () => { $('settingsModal').hidden = false; refreshAudioCacheStat(); });
     const closeSettingsModal = () => { $('settingsModal').hidden = true; };
     $('settingsModalDone').addEventListener('click', closeSettingsModal);
     $('closeSettingsModal').addEventListener('click', closeSettingsModal);
