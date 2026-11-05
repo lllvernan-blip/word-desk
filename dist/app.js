@@ -10,7 +10,7 @@ const CONFIG = {
   contentUrl: './content/manifest.json',
   pageSize: 24,
   maxEvents: 1200,
-  version: '2026.11.04.1'
+  version: '2026.11.05.2'
 };
 
 /* 功能开关：听音拼写与跟读自评暂时下架。
@@ -250,6 +250,241 @@ function speechSupported() {
     && typeof window.speechSynthesis.speak === 'function';
 }
 
+/* ---------- 离线发音包：分片存储 + 字节区间读取 ----------
+   3400 个词全放在 audio/ 会变成 3400 个文件，静态托管同步慢且容易发布失败。
+   所以打包成 17 个 pack-XX.bin，index.json 记录每个词的 [包序号, 偏移, 长度]。
+   播放某个词只发一个几 KB 的 Range 请求，不下载整包。
+   音频由 Piper + LJSpeech 声库（public domain）预生成，构建脚本 tools/build-audio-bundles.py。 */
+const AUDIO = {
+  dir: './audio/',
+  indexUrl: './audio/index.json',
+  index: null,
+  indexLoading: null,
+  urls: new Map(),      // word -> objectURL，会话内复用
+  loading: new Map(),   // word -> Promise<url|null>，避免同一个词并发重复请求
+  els: new Map(),       // word -> Audio 元素
+  current: null,
+  waSource: null,
+  ctx: null,
+  seq: 0,               // 播放请求序号：切题/新播放时作废进行中的加载
+  cacheName: null       // 当前音频包的 Cache Storage 名字（跟 index.v 走）
+};
+
+function audioKey(word) {
+  return normalizeEnglish(word).replace(/[^a-z]/g, '');
+}
+
+/* 离线音频缓存：播过的词按词存进 Cache Storage，断网重载后仍可播放。
+   缓存名跟 index.json 的版本号走，音频包重建后旧缓存自然作废。 */
+const AUDIO_CACHE_PREFIX = 'wtp-audio-v';
+function audioCacheName(v) { return AUDIO_CACHE_PREFIX + (Number(v) || 1); }
+function audioCacheUrl(key) { return new URL('./audio/w/' + key, location.href).href; }
+
+function audioCacheRead(name, key) {
+  if (!('caches' in window)) return Promise.resolve(null);
+  return caches.open(name)
+    .then((c) => c.match(audioCacheUrl(key)))
+    .then((r) => (r ? r.arrayBuffer() : null))
+    .catch(() => null);
+}
+
+function audioCacheWrite(name, key, buf) {
+  if (!('caches' in window) || !buf || !buf.byteLength) return;
+  try {
+    caches.open(name)
+      .then((c) => c.put(audioCacheUrl(key), new Response(buf, { headers: { 'content-type': 'audio/mpeg' } })))
+      .catch(() => {});
+  } catch (e) { /* ignore */ }
+}
+
+/* 音频包版本变了：删掉旧的词缓存，别拿旧字节配新索引 */
+function pruneAudioCaches(keep) {
+  if (!('caches' in window)) return;
+  caches.keys().then((names) => Promise.all(
+    names.filter((n) => n.indexOf(AUDIO_CACHE_PREFIX) === 0 && n !== keep)
+      .map((n) => caches.delete(n))
+  )).catch(() => {});
+}
+
+function stopAudioFile() {
+  if (AUDIO.waSource) {
+    try { AUDIO.waSource.stop(); } catch (e) { /* ignore */ }
+    AUDIO.waSource = null;
+  }
+  if (!AUDIO.current) return;
+  try { AUDIO.current.pause(); AUDIO.current.currentTime = 0; } catch (e) { /* ignore */ }
+}
+
+function loadAudioIndex() {
+  if (AUDIO.index) return Promise.resolve(AUDIO.index);
+  if (!AUDIO.indexLoading) {
+    AUDIO.indexLoading = fetch(AUDIO.indexUrl)
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((d) => {
+      AUDIO.index = d;
+      AUDIO.indexLoading = null;
+      if (d) {
+        const name = audioCacheName(d.v);
+        if (AUDIO.cacheName !== name) { AUDIO.cacheName = name; pruneAudioCaches(name); }
+      }
+      return d;
+    });
+  }
+  return AUDIO.indexLoading;
+}
+
+/* 取某个词的音频，返回 blob URL；失败返回 null。
+   顺序：内存 -> Cache Storage（离线也能播播过的词）-> Range 取分片 -> 存 Cache。 */
+function loadAudioUrl(key) {
+  if (AUDIO.urls.has(key)) return Promise.resolve(AUDIO.urls.get(key));
+  if (AUDIO.loading.has(key)) return AUDIO.loading.get(key);
+  const task = (async () => {
+    const name = AUDIO.cacheName || audioCacheName(1);
+    const cachedBuf = await audioCacheRead(name, key);
+    if (cachedBuf) return toAudioUrl(key, cachedBuf);
+    const idx = await loadAudioIndex();
+    const slot = idx && idx.words ? idx.words[key] : null;
+    if (!slot) return null;
+    const pack = idx.packs[slot[0]];
+    if (!pack) return null;
+    const from = slot[1];
+    const to = from + slot[2] - 1;
+    try {
+      const res = await fetch(AUDIO.dir + pack, { headers: { Range: 'bytes=' + from + '-' + to } });
+      if (!res.ok) return null;
+      const partial = res.status === 206;
+      let buf = await res.arrayBuffer();
+      // 服务器支持 Range 时 buf 就是这一个词；不支持会返回整包，自己切出来
+      if (!partial) buf = buf.slice(from, from + slot[2]);
+      if (!buf || !buf.byteLength) return null;
+      audioCacheWrite(audioCacheName(idx.v), key, buf); // 后台写，不阻塞这次播放
+      return toAudioUrl(key, buf);
+    } catch (e) { return null; }
+  })().then((url) => {
+    AUDIO.loading.delete(key);
+    return url;
+  }).catch(() => {
+    AUDIO.loading.delete(key);
+    return null;
+  });
+  AUDIO.loading.set(key, task);
+  return task;
+}
+
+/* 内存里的 blob URL 只留最近 200 个，长时间使用不累积 */
+function toAudioUrl(key, buf) {
+  const url = URL.createObjectURL(new Blob([buf], { type: 'audio/mpeg' }));
+  AUDIO.urls.set(key, url);
+  if (AUDIO.urls.size > 200) {
+    const first = AUDIO.urls.keys().next();
+    if (!first.done) {
+      const oldUrl = AUDIO.urls.get(first.value);
+      try { URL.revokeObjectURL(oldUrl); } catch (e) { /* ignore */ }
+      AUDIO.urls.delete(first.value);
+    }
+  }
+  return url;
+}
+
+/* 渲染卡片时先把音频取到内存：点击时就不用等网络，play() 也不会丢用户手势 */
+function prefetchAudio(word) {
+  const key = audioKey(word);
+  if (!key || AUDIO.urls.has(key) || AUDIO.loading.has(key)) return;
+  loadAudioUrl(key);
+}
+
+function audioContext() {
+  if (AUDIO.ctx) return AUDIO.ctx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try { AUDIO.ctx = new AC(); } catch (e) { return null; }
+  return AUDIO.ctx;
+}
+
+/* 在点击的同步栈里调用，解锁 Web Audio，供等网络后仍能出声 */
+function unlockAudio() {
+  const ctx = audioContext();
+  if (ctx && ctx.state === 'suspended') {
+    try { ctx.resume(); } catch (e) { /* ignore */ }
+  }
+}
+
+/* Safari 在 await 之后会拒绝 play()，这时用 Web Audio 播同一段字节 */
+function playViaWebAudio(key, rate) {
+  const ctx = audioContext();
+  if (!ctx) return Promise.resolve({ ok: false, reason: 'unsupported' });
+  return loadAudioUrl(key).then((url) => {
+    if (!url) return { ok: false, reason: 'no-file' };
+    return fetch(url)
+      .then((r) => r.arrayBuffer())
+      .then((buf) => new Promise((resolve) => {
+        const resume = ctx.state === 'suspended' ? ctx.resume().catch(() => null) : Promise.resolve();
+        resume.then(() => {
+          ctx.decodeAudioData(buf, (decoded) => {
+            try {
+              const src = ctx.createBufferSource();
+              src.buffer = decoded;
+              src.playbackRate.value = Number(rate) === 0.8 ? 0.8 : 1;
+              src.connect(ctx.destination);
+              AUDIO.waSource = src;
+              src.onended = () => { if (AUDIO.waSource === src) AUDIO.waSource = null; };
+              src.start(0);
+              resolve({ ok: true, source: 'webaudio' });
+            } catch (e) {
+              resolve({ ok: false, reason: 'error' });
+            }
+          }, () => resolve({ ok: false, reason: 'decode' }));
+        });
+      }));
+  }).catch(() => ({ ok: false, reason: 'error' }));
+}
+
+function startAudioEl(key, url, rate) {
+  return new Promise((resolve) => {
+    stopAudioFile();
+    let el = AUDIO.els.get(key);
+    if (!el) {
+      try { el = new Audio(); }
+      catch (e) { resolve({ ok: false, reason: 'unsupported' }); return; }
+      el.preload = 'auto';
+      AUDIO.els.set(key, el);
+    }
+    let settled = false;
+    const done = (r) => { if (!settled) { settled = true; resolve(r); } };
+    el.onended = () => done({ ok: true, source: 'file' });
+    el.onerror = () => done({ ok: false, reason: 'decode' });
+    AUDIO.current = el;
+    try { el.src = url; el.currentTime = 0; } catch (e) { /* ignore */ }
+    try {
+      el.defaultPlaybackRate = Number(rate) === 0.8 ? 0.8 : 1;
+      el.playbackRate = el.defaultPlaybackRate;
+    } catch (e) { /* ignore */ }
+    let p;
+    try { p = el.play(); }
+    catch (e) { done({ ok: false, reason: 'blocked' }); return; }
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => done({ ok: false, reason: 'blocked', error: err && err.name }));
+    }
+  });
+}
+
+function playAudioFile(word, rate) {
+  const key = audioKey(word);
+  if (!key) return Promise.resolve({ ok: false, reason: 'no-file' });
+  const seq = ++AUDIO.seq;
+  const cached = AUDIO.urls.get(key);
+  if (cached) return startAudioEl(key, cached, rate);
+  return loadAudioUrl(key).then((url) => {
+    if (seq !== AUDIO.seq) return { ok: false, reason: 'stale' };
+    if (!url) return { ok: false, reason: 'no-file' };
+    return startAudioEl(key, url, rate);
+  }).then((r) => {
+    if (r.ok || r.reason !== 'blocked') return r;
+    return playViaWebAudio(key, rate);
+  });
+}
+
 function isIOS() {
   const ua = navigator.userAgent || '';
   return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -302,12 +537,24 @@ async function probeVoice() {
 }
 
 function stopSpeaking() {
+  AUDIO.seq += 1;      // 作废进行中的加载：慢网下切题后不该再响
+  stopAudioFile();     // 切题/结束时离线音频也要停，不只停 TTS
   if (!speechSupported()) return;
   try { speechSynthesis.cancel(); } catch (e) { /* ignore */ }
 }
 
-/* 播放一个英文词；返回 { ok, reason }。reason: unsupported/error/no-start/stalled */
-function speakWord(text, opts) {
+/* 播放一个英文词；返回 { ok, reason }。reason: no-file/blocked/unsupported/error/no-start/stalled
+   有离线音频就用音频，没有才用系统 TTS。 */
+async function speakWord(text, opts) {
+  unlockAudio(); // 必须在点击的同步栈里，否则等完网络 Web Audio 也发不了声
+  const r = await playAudioFile(text);
+  if (r.ok) return r;
+  // 音频被拦或浏览器不支持时不再叠一层 TTS，避免两个声音同时响
+  if (r.reason === 'blocked' || r.reason === 'unsupported') return r;
+  return speakWithTTS(text, opts);
+}
+
+function speakWithTTS(text, opts) {
   const o = opts || {};
   return new Promise((resolve) => {
     if (!speechSupported()) { resolve({ ok: false, reason: 'unsupported' }); return; }
@@ -1757,6 +2004,7 @@ function guessHTML(card) {
       <div class="prompt-label">${stepPrefix(card, 'guess')}${isEn ? '猜中文意思' : '写出英文单词'}</div>
       ${isEn
         ? `<div class="word-display small">${wordDisplayHTML(w)}</div>
+           <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button></div>
            <p class="hint-line">${card.steps.includes('breakdown') ? '根据刚才的词缀拆解，猜一猜它的中文意思。' : '根据词形线索，猜一猜它的中文意思。'}</p>`
         : `<div class="meaning-list">${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}</div>
            <p class="hint-line">根据释义、词性和字母提示，写出对应的英文单词。</p>`}
@@ -1807,6 +2055,7 @@ function revealHTML(card) {
       ${verdict}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
+        <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button></div>
         ${wordMetaHTML(w)}
         <div class="meaning-list">
           ${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}
@@ -1923,6 +2172,7 @@ function resultHTML(card) {
         : verdictHTML('bad', '×', `这次没${card.dir === 'listen' ? '听对' : '拼对'}。正确答案是 <strong>${esc(w.word)}</strong>，已自动加入错题本。`)}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
+        <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button></div>
         ${wordMetaHTML(w)}
         <div class="meaning-list">
           ${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}
@@ -1996,9 +2246,9 @@ function renderSession() {
   $('sessionStats').textContent = `正确 ${session.correct} · 连对 ${session.streakNow}`;
 
   const stage = cardStage(card);
-  const audioKey = `${session.startedAt}:${session.index}:${stage}`;
-  if (audioKey !== lastAudioKey) {
-    lastAudioKey = audioKey;
+  const stageSeqKey = `${session.startedAt}:${session.index}:${stage}`;
+  if (stageSeqKey !== lastAudioKey) {
+    lastAudioKey = stageSeqKey;
     stopSpeaking();
   }
   let html = '';
@@ -2010,6 +2260,8 @@ function renderSession() {
   else if (stage === 'listen') html = listenHTML(card);
   else html = resultHTML(card);
   body.innerHTML = stageBarHTML(card) + html;
+  // 提前把这一个词的音频取到内存，点击发音时无需等网络
+  prefetchAudio(card.word.word);
 
   if (stage === 'guess' || stage === 'recall' || stage === 'listen') {
     const input = $(stage === 'guess' ? 'guessInput' : 'recallInput');
@@ -3556,7 +3808,10 @@ function bindEvents() {
     else if (action === 'give-up') giveUp();
     else if (action === 'next-card') nextCard();
     else if (action === 'restart') restartSession();
-    else if (action === 'play-audio') {
+    else if (action === 'speak-word') {
+      const card = currentCard();
+      if (card) speakWord(card.word.word);
+    } else if (action === 'play-audio') {
       const card = currentCard();
       if (card) playListenAudio(card);
     } else if (action === 'listen-to-recall') {

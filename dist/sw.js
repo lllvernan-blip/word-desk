@@ -1,7 +1,7 @@
 /* 单词翻译练习台 · Service Worker
    缓存应用外壳与词库内容，支持离线打开。
    注意：file:// 下 Service Worker 不生效，请通过 http(s) 访问。 */
-const CACHE = 'wtp-shell-v29';
+const CACHE = 'wtp-shell-v32';
 const CORE = [
   './',
   './index.html',
@@ -43,9 +43,44 @@ self.addEventListener('fetch', (event) => {
 
   const isDocument = req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html');
   const isContent = url.pathname.includes('/content/');
+  const isAudio = url.pathname.includes('/audio/');
 
-  if (isDocument || isContent) {
-    // 页面与词库内容：网络优先，失败回退缓存
+  if (isAudio) {
+    // 发音包按字节区间读取，Range 请求得到的是 206，Cache API 存不了，直接放行交给浏览器。
+    // index.json 走网络优先：音频包重建后偏移会变，旧索引配新分片会解码失败。
+    if (req.headers.get('range')) return;
+    const isAudioIndex = /\/audio\/index\.json$/.test(url.pathname);
+    if (isAudioIndex) {
+      event.respondWith(
+        fetch(req)
+          .then((res) => {
+            if (res && res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(req, copy));
+            }
+            return res;
+          })
+          .catch(() => caches.match(req))
+      );
+      return;
+    }
+    event.respondWith(
+      caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      }))
+    );
+    return;
+  }
+
+  // 主脚本与样式走网络优先：否则用户端会长期停在旧 app.js，出现「改了没反应」
+  const isShellCode = /\/(app\.js|styles\.css)$/.test(url.pathname);
+
+  if (isDocument || isContent || isShellCode) {
+    // 页面、词库内容、主脚本：网络优先，失败回退缓存
     event.respondWith(
       fetch(req)
         .then((res) => {
