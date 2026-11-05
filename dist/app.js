@@ -2788,7 +2788,7 @@ function showView(name, opts = {}) {
   document.body.dataset.currentView = name;
   document.body.classList.toggle('is-session', !!session && name === 'practice');
   document.querySelectorAll('.view').forEach((v) => { v.hidden = v.dataset.view !== name; });
-  document.querySelectorAll('.nav-item, .tab-item, .nav-utility').forEach((btn) => {
+  document.querySelectorAll('.nav-item, .tab-item').forEach((btn) => {
     const on = btn.dataset.view === name;
     btn.classList.toggle('active', on);
     if (on) btn.setAttribute('aria-current', 'page');
@@ -3538,7 +3538,7 @@ function bindEvents() {
     renderPickerState();
   });
 
-  document.querySelectorAll('.nav-item, .tab-item, .nav-utility').forEach((btn) => {
+  document.querySelectorAll('.nav-item, .tab-item').forEach((btn) => {
     btn.addEventListener('click', () => {
       if (session && !session.finished && !sessionEditing) { toast('先结束本轮练习，再切换页面'); return; }
       if (sessionEditing) cancelPickerEdit();
