@@ -70,7 +70,9 @@
                 <div class="seg small direction-seg" id="directionSeg" role="group" aria-label="练习方向">
                   <button type="button" data-dir="en2zh" class="active">英译中</button>
                   <button type="button" data-dir="zh2en">中译英</button>
+                  <button type="button" data-dir="listen">听音拼写</button>
                 </div>
+                <p class="hint-line direction-note" id="directionNote" hidden></p>
                 <div class="seg small" id="scopeSeg" role="group" aria-label="取词范围">
                   <button type="button" data-scope="review" class="active">今日复习计划</button>
                   <button type="button" data-scope="library">全库</button>
@@ -195,6 +197,20 @@
             </label>
             <label class="switch setup-switch"><input id="shuffleToggle" type="checkbox" checked /><span>打乱顺序</span></label>
             <label class="switch setup-switch" id="followReadItem"><input id="followReadToggle" type="checkbox" /><span>结果页跟读自评</span></label>
+            <div class="setup-field audio-cache-field">
+              <span class="field-label">音频缓存</span>
+              <div class="audio-cache-row">
+                <span class="hint" id="audioCacheStat">统计中…</span>
+                <button class="btn tiny ghost" id="clearAudioCacheBtn" type="button">清理音频缓存</button>
+              </div>
+            </div>
+            <div class="setup-field audio-cache-field">
+              <span class="field-label">屏蔽词</span>
+              <div class="audio-cache-row">
+                <span class="hint" id="blockedStat">还未屏蔽任何词</span>
+                <button class="btn tiny ghost" id="unblockBtn" type="button" disabled>撤销最近一个</button>
+              </div>
+            </div>
           </div>
         </details>
         </div>
@@ -311,6 +327,7 @@
               <div class="dz-sub">或点击选择文件。TXT 支持「单词,释义」或纯单词列表；纯词表只读取内置释义，不写入你的自建词库。</div>
               <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.json,text/csv,text/plain,application/json" hidden />
             </label>
+            <p class="hint-line">有标准音频的词直接用离线发音，其余用系统朗读。</p>
             <div class="import-actions">
               <button class="btn tiny" id="csvTemplateBtn" type="button">下载 CSV 模板</button>
               <button class="btn tiny" id="jsonExampleBtn" type="button">下载 JSON 示例</button>

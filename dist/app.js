@@ -13,12 +13,11 @@ const CONFIG = {
   version: '2026.11.05.2'
 };
 
-/* 功能开关：听音拼写与跟读自评暂时下架。
-   原因：真机反馈系统 TTS 在中文环境的英文发音音质太差，用户「根本听不出来是什么」；
-   跟读对照同样依赖标准发音，听不清就没有自评意义，等离线音频包（v1.5）一起恢复。
-   代码与卡型/录音逻辑全部保留：恢复时把对应开关改回 true，并恢复选词面板的方向按钮与设置项即可。 */
+/* 功能开关：听音拼写已恢复，但只对 audio/index.json 里真实存在的词开放；
+   没有离线音频的词一律走文字练习，绝不用系统朗读凑发音。
+   跟读自评仍下架（依赖标准发音，暂不恢复）。 */
 const FEATURES = {
-  listenDictation: false,
+  listenDictation: true,
   followRead: false
 };
 
@@ -241,6 +240,7 @@ const VOICE = {
   unlocked: false,     // 是否已有一次由用户手势触发的成功播放
   cachedProbe: null,
   forced: false,
+  ttsActive: false,    // 是否真的在播 TTS：避免听音路径无意义地调用 speechSynthesis
   lastError: ''
 };
 
@@ -248,6 +248,24 @@ function speechSupported() {
   return typeof window.speechSynthesis !== 'undefined'
     && typeof window.SpeechSynthesisUtterance === 'function'
     && typeof window.speechSynthesis.speak === 'function';
+}
+
+/* 系统朗读不可用时的一次性提示：同一类原因只弹一次，说明降级方式 */
+const VOICE_HINTS = new Set();
+const VOICE_HINT_TEXT = {
+  unsupported: '发音不可用：这台浏览器不支持语音朗读，也没有离线音频。已改为先看音标拼写，没有音标就看词形拼写。',
+  none: '发音不可用：系统里没有可用的英文语音。已改为先看音标拼写，没有音标就看词形拼写。',
+  blocked: '发音被浏览器拦截（首次需先点一下页面）：已改为先看音标拼写，没有音标就看词形拼写。',
+  error: '发音播放失败：已改为先看音标拼写，没有音标就看词形拼写。'
+};
+function reportVoiceFailure(reason) {
+  let key = 'error';
+  if (reason === 'unsupported') key = 'unsupported';
+  else if (reason === 'none' || reason === 'no-voice') key = 'none';
+  else if (reason === 'blocked' || reason === 'no-start' || reason === 'stalled') key = 'blocked';
+  if (VOICE_HINTS.has(key)) return;
+  VOICE_HINTS.add(key);
+  toast(VOICE_HINT_TEXT[key]);
 }
 
 /* ---------- 离线发音包：分片存储 + 字节区间读取 ----------
@@ -272,6 +290,41 @@ const AUDIO = {
 
 function audioKey(word) {
   return normalizeEnglish(word).replace(/[^a-z]/g, '');
+}
+
+/* 音频解码/取包失败过的词：记住不再重试，也不再生成听音卡 */
+const AUDIO_BROKEN_KEY = 'wtp.audio.broken';
+/* 失败名单按「音频包版本:词」记，音频包重建后旧记录自然失效 */
+function audioBrokenKey(key) {
+  const v = (AUDIO.index && AUDIO.index.v) || 1;
+  return v + ':' + key;
+}
+const AUDIO_BROKEN = new Set((() => {
+  try {
+    const list = JSON.parse(localStorage.getItem(AUDIO_BROKEN_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((k) => typeof k === 'string').slice(-200) : [];
+  } catch (e) { return []; }
+})());
+function markAudioBroken(key) {
+  if (!key) return;
+  const k = audioBrokenKey(key);
+  if (AUDIO_BROKEN.has(k)) return;
+  AUDIO_BROKEN.add(k);
+  try { localStorage.setItem(AUDIO_BROKEN_KEY, JSON.stringify(Array.from(AUDIO_BROKEN).slice(-200))); } catch (e) { /* 隐私模式静默 */ }
+}
+
+/* 听音门槛：只有音频索引里真实存在、且没有失败记录的词才允许生成听音卡 */
+function hasOfflineAudio(word) {
+  const key = audioKey(typeof word === 'string' ? word : (word && word.word));
+  return !!(key && AUDIO.index && AUDIO.index.words && AUDIO.index.words[key] && !AUDIO_BROKEN.has(audioBrokenKey(key)));
+}
+
+/* 取词音频，超时返回 null；用于进入听音卡时预取，不阻塞答题 */
+function loadAudioWithTimeout(key, ms) {
+  return Promise.race([
+    loadAudioUrl(key),
+    new Promise((resolve) => setTimeout(() => resolve(null), ms || 4000))
+  ]);
 }
 
 /* 离线音频缓存：播过的词按词存进 Cache Storage，断网重载后仍可播放。
@@ -306,6 +359,63 @@ function pruneAudioCaches(keep) {
   )).catch(() => {});
 }
 
+/* 音频缓存统计：按 Cache Storage 里实际存过的词片段累加数量与字节 */
+function formatBytes(n) {
+  if (!n) return '0 B';
+  if (n >= 1048576) return (n / 1048576).toFixed(2) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+
+async function readAudioCacheStat() {
+  if (!('caches' in window)) return { count: 0, bytes: 0 };
+  const names = (await caches.keys()).filter((n) => n.indexOf(AUDIO_CACHE_PREFIX) === 0);
+  const items = [];
+  for (const n of names) {
+    const c = await caches.open(n);
+    for (const req of await c.keys()) items.push([c, req]);
+  }
+  let bytes = 0;
+  for (const [c, req] of items) {
+    const r = await c.match(req);
+    if (!r) continue;
+    try { const b = await r.blob(); bytes += b.size; } catch (e) { /* ignore */ }
+  }
+  return { count: items.length, bytes };
+}
+
+async function refreshAudioCacheStat() {
+  const el = $('audioCacheStat');
+  if (!el) return;
+  if (!('caches' in window)) { el.textContent = '当前浏览器不支持离线音频缓存'; return; }
+  const s = await readAudioCacheStat();
+  el.textContent = s.count
+    ? '已缓存 ' + s.count + ' 个音频片段 · ' + formatBytes(s.bytes)
+    : '暂无缓存，播过的词会自动缓存';
+}
+
+async function clearAudioCache() {
+  if (!('caches' in window)) return;
+  const offline = typeof navigator.onLine === 'boolean' && !navigator.onLine;
+  const msg = offline
+    ? '当前处于离线状态：清理后离线将无法播放离线音频，确定清理？'
+    : '清理后已缓存的词会重新按需下载，确定清理音频缓存？';
+  if (!window.confirm(msg)) return;
+  stopAudioFile(); // 先停播：revoke 正在播的 URL 会触发 onerror，被误记成 decode 失败
+  const names = (await caches.keys()).filter((n) => n.indexOf(AUDIO_CACHE_PREFIX) === 0);
+  await Promise.all(names.map((n) => caches.delete(n)));
+  // 失败名单跟缓存同源，一起清掉
+  AUDIO_BROKEN.clear();
+  try { localStorage.removeItem(AUDIO_BROKEN_KEY); } catch (e) { /* ignore */ }
+  // 内存里的 blob URL 也一起作废，下次播放重新取片
+  AUDIO.urls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ } });
+  AUDIO.urls.clear();
+  AUDIO.els.clear();
+  await refreshAudioCacheStat();
+  toast('音频缓存已清理');
+}
+
+
 function stopAudioFile() {
   if (AUDIO.waSource) {
     try { AUDIO.waSource.stop(); } catch (e) { /* ignore */ }
@@ -313,6 +423,22 @@ function stopAudioFile() {
   }
   if (!AUDIO.current) return;
   try { AUDIO.current.pause(); AUDIO.current.currentTime = 0; } catch (e) { /* ignore */ }
+}
+
+/* 播放态只靠显式 class，任何退出路径都统一清掉，避免按钮永久变绿 */
+const PLAYING_CLASS = 'is-playing';
+let playingTimer = null;
+function clearPlayingState() {
+  if (playingTimer) { clearTimeout(playingTimer); playingTimer = null; }
+  document.querySelectorAll('.' + PLAYING_CLASS).forEach((b) => b.classList.remove(PLAYING_CLASS));
+}
+function setPlayingState(btn, ms) {
+  clearPlayingState();
+  const target = btn && btn.closest ? btn.closest('button') : null;
+  if (!target) return;
+  target.classList.add(PLAYING_CLASS);
+  // 回调丢失时的上限：单词音频通常 < 3s，8s 兜底强拆
+  playingTimer = setTimeout(clearPlayingState, ms || 8000);
 }
 
 function loadAudioIndex() {
@@ -337,6 +463,7 @@ function loadAudioIndex() {
 /* 取某个词的音频，返回 blob URL；失败返回 null。
    顺序：内存 -> Cache Storage（离线也能播播过的词）-> Range 取分片 -> 存 Cache。 */
 function loadAudioUrl(key) {
+  if (AUDIO_BROKEN.has(key)) return Promise.resolve(null);
   if (AUDIO.urls.has(key)) return Promise.resolve(AUDIO.urls.get(key));
   if (AUDIO.loading.has(key)) return AUDIO.loading.get(key);
   const task = (async () => {
@@ -355,10 +482,23 @@ function loadAudioUrl(key) {
     try {
       const res = await fetch(AUDIO.dir + pack, { headers: { Range: 'bytes=' + from + '-' + to } });
       if (!res.ok) return null;
-      const partial = res.status === 206;
       let buf = await res.arrayBuffer();
-      // 服务器支持 Range 时 buf 就是这一个词；不支持会返回整包，自己切出来
-      if (!partial) buf = buf.slice(from, from + slot[2]);
+      // 不依赖 Range 成功：iOS Safari / 某些 CDN 会忽略 Range 直接给 200 整包，
+      // 也可能给 206 却缺失或写错 Content-Range。统一按 index.json 的 slot 定位后再切。
+      const cr = res.headers.get('Content-Range');
+      const crMatch = cr ? /bytes\s+(\d+)-(\d+)\//i.exec(cr) : null;
+      let startsAt = null;
+      if (res.status !== 206) startsAt = 0;                    // 200：拿到的是整包
+      else if (crMatch) startsAt = Number(crMatch[1]);          // 206：按服务器声明的起点
+      else if (buf.byteLength === slot[2]) startsAt = from;     // 206 缺 C-R 但长度刚好是一个词的
+      if (startsAt === null) return null;
+      if (startsAt === from) {
+        if (buf.byteLength < slot[2]) return null;
+        buf = buf.slice(0, slot[2]);
+      } else {
+        if (buf.byteLength < from + slot[2]) return null;       // 拿到的数据不够切，别硬播
+        buf = buf.slice(from, from + slot[2]);
+      }
       if (!buf || !buf.byteLength) return null;
       audioCacheWrite(audioCacheName(idx.v), key, buf); // 后台写，不阻塞这次播放
       return toAudioUrl(key, buf);
@@ -541,25 +681,43 @@ async function probeVoice() {
 function stopSpeaking() {
   AUDIO.seq += 1;      // 作废进行中的加载：慢网下切题后不该再响
   stopAudioFile();     // 切题/结束时离线音频也要停，不只停 TTS
-  if (!speechSupported()) return;
+  if (!speechSupported() || !VOICE.ttsActive) return;
   try { speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+  VOICE.ttsActive = false;
 }
 
-/* 播放一个英文词；返回 { ok, reason }。reason: no-file/blocked/unsupported/error/no-start/stalled
-   有离线音频就用音频，没有才用系统 TTS。 */
+/* 播放一个英文词；返回 { ok, reason }。reason: no-file/blocked/unsupported/no-voice/error/no-start/stalled
+   有离线音频就用音频，没有才用系统 TTS。用户主动点播失败时给一次性提示，自动播放失败不打扰。 */
 async function speakWord(text, opts) {
+  const o = opts || {};
   unlockAudio(); // 必须在点击的同步栈里，否则等完网络 Web Audio 也发不了声
   const r = await playAudioFile(text);
   if (r.ok) return r;
   // 音频被拦或浏览器不支持时不再叠一层 TTS，避免两个声音同时响
-  if (r.reason === 'blocked' || r.reason === 'unsupported') return r;
-  return speakWithTTS(text, opts);
+  if (r.reason === 'blocked' || r.reason === 'unsupported') {
+    if (!o.auto) reportVoiceFailure(r.reason);
+    return r;
+  }
+  const t = await speakWithTTS(text, opts);
+  if (!t.ok && !o.auto) reportVoiceFailure(t.reason);
+  return t;
 }
 
-function speakWithTTS(text, opts) {
+async function speakWithTTS(text, opts) {
   const o = opts || {};
+  if (!speechSupported()) return { ok: false, reason: 'unsupported' };
+  // 没有可用英文 voice 时明确失败，不拿中文 voice 糊弄过去
+  if (!VOICE.voice) {
+    let voices = speechSynthesis.getVoices() || [];
+    if (!voices.length) voices = await waitVoices(800);
+    VOICE.voice = pickEnglishVoice(voices);
+    if (!VOICE.voice) {
+      VOICE.status = 'none';
+      persistVoiceProbe();
+      return { ok: false, reason: 'no-voice' };
+    }
+  }
   return new Promise((resolve) => {
-    if (!speechSupported()) { resolve({ ok: false, reason: 'unsupported' }); return; }
     stopSpeaking();
     let started = false;
     let settled = false;
@@ -568,6 +726,7 @@ function speakWithTTS(text, opts) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      VOICE.ttsActive = false;
       resolve(r);
     };
     let u;
@@ -581,8 +740,7 @@ function speakWithTTS(text, opts) {
     u.rate = Number(o.rate) === 0.8 ? 0.8 : 1;
     u.pitch = 1;
     u.volume = 1;
-    if (!VOICE.voice) VOICE.voice = pickEnglishVoice(speechSynthesis.getVoices());
-    if (VOICE.voice) u.voice = VOICE.voice;
+    u.voice = VOICE.voice;
     timer = setTimeout(() => settle({ ok: false, reason: started ? 'stalled' : 'no-start' }), 2500);
     u.onstart = () => {
       started = true;
@@ -594,7 +752,7 @@ function speakWithTTS(text, opts) {
       VOICE.lastError = (ev && ev.error) || 'error';
       settle({ ok: false, reason: 'error', error: VOICE.lastError });
     };
-    try { speechSynthesis.speak(u); }
+    try { VOICE.ttsActive = true; speechSynthesis.speak(u); }
     catch (e) { VOICE.lastError = 'exception'; settle({ ok: false, reason: 'error' }); }
   });
 }
@@ -779,26 +937,120 @@ let pickerScope = 'review';
 const DAILY_REVIEW_CAP = 120;
 const DAILY_NEW_MAX = 15;
 
+/* ---------- 敏感词与屏蔽 ----------
+   content/sensitive.json 由脚本扫描 + 人工复核生成：
+   - removed: 高危（脏话/slur/性），直接不进练习库
+   - words: 其余敏感词保留可练，但永远不进四选一干扰项
+   - blocked: 用户点「别出现」写入本地黑名单，优先于一切来源 */
+const SENSITIVE = {
+  loaded: false,
+  words: new Map(),
+  removed: new Set(['ass', 'bloody', 'rape', 'sex', 'sexual'])
+};
+let blockedWords = new Set();
+let blockedOrder = [];
+
+/* 释义文本兜底：即使来源词未被词头清单命中，显式敏感中文也不进选项 */
+const UNSAFE_ZH_RE = /性交|性欲|色情|妓女|娼妓|卖淫|阴茎|阴道|精液|裸体|全裸|强奸|乱伦|手淫|猥亵|吸毒|毒品|海洛因|可卡因|古柯碱|大麻(?!哈)|鸦片|吗啡|冰毒|成瘾|自杀|谋杀|凶杀|屠杀|血腥|暴力|恐怖分子|暴行|尸体|斩首|肢解|酷刑|虐待|白痴|蠢货|废物|人渣|贱人|婊子|黑鬼|犹太佬|娘炮|残废/;
+
+function wordKey(w) {
+  if (typeof w === 'string') return normalizeEnglish(w);
+  return (w && w.lower) || (w ? normalizeEnglish(w.word) : '');
+}
+
+function isSubstringUnsafeMeaning(text) {
+  return UNSAFE_ZH_RE.test(String(text || ''));
+}
+
+function isSensitiveWord(w) {
+  return SENSITIVE.words.has(wordKey(w));
+}
+
+function isHiddenWord(w) {
+  const k = wordKey(w);
+  return !k || SENSITIVE.removed.has(k) || blockedWords.has(k);
+}
+
+/* 干扰项安全池：排除所有敏感词、高危剔除词与用户屏蔽词 */
+function isDistractorSafe(w) {
+  const k = wordKey(w);
+  if (!k || isHiddenWord(w) || SENSITIVE.words.has(k)) return false;
+  const text = w.meanings ? w.meanings.join('；') : '';
+  return !isSubstringUnsafeMeaning(text);
+}
+
+async function loadSensitiveContent() {
+  try {
+    const res = await fetch('./content/sensitive.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const map = new Map();
+    (data.words || []).forEach((e) => {
+      const k = e && e.word ? normalizeEnglish(e.word) : '';
+      if (k) map.set(k, e);
+    });
+    SENSITIVE.words = map;
+    SENSITIVE.removed = new Set((data.removed || ['ass', 'bloody', 'rape', 'sex', 'sexual'])
+      .map((w) => normalizeEnglish(w)).filter(Boolean));
+    SENSITIVE.loaded = true;
+  } catch (e) {
+    // 离线首启且无缓存时，至少保留内嵌的高危 5 词，别把已知脏词当正常词
+    SENSITIVE.loaded = false;
+  }
+  invalidateLib();
+}
+
+function refreshBlockedUI() {
+  const stat = $('blockedStat');
+  const btn = $('unblockBtn');
+  if (stat) stat.textContent = blockedOrder.length ? `已屏蔽 ${blockedOrder.length} 个词` : '还未屏蔽任何词';
+  if (btn) btn.disabled = blockedOrder.length === 0;
+}
+
+function addBlockedWord(lower) {
+  const k = normalizeEnglish(lower);
+  if (!k || blockedWords.has(k)) return false;
+  blockedWords.add(k);
+  blockedOrder.push(k);
+  saveKV('blocked', blockedOrder.slice());
+  invalidateLib();
+  refreshBlockedUI();
+  return true;
+}
+
+function undoBlockedWord() {
+  const k = blockedOrder.pop();
+  if (!k) return null;
+  blockedWords.delete(k);
+  saveKV('blocked', blockedOrder.slice());
+  invalidateLib();
+  refreshBlockedUI();
+  return k;
+}
+
 function invalidateLib() { libCache = null; }
 
 function library() {
   if (libCache) return libCache;
   const list = new Map();
   if (settings.libMode !== 'user') {
-    BUILTIN.forEach((w) => list.set(w.lower, w));
-    remoteWords.forEach((w) => list.set(w.lower, w));
+    BUILTIN.forEach((w) => { if (!isHiddenWord(w)) list.set(w.lower, w); });
+    remoteWords.forEach((w) => { if (!isHiddenWord(w)) list.set(w.lower, w); });
   }
   if (settings.libMode !== 'builtin') {
-    userWords.forEach((w) => list.set(w.lower, w));
+    userWords.forEach((w) => { if (!isHiddenWord(w)) list.set(w.lower, w); });
   }
   libCache = Array.from(list.values()).sort((a, b) => a.word.localeCompare(b.word, 'en'));
   return libCache;
 }
 
 function findWord(lower) {
-  const direct = library().find((w) => w.lower === lower);
+  const key = normalizeEnglish(lower);
+  if (isHiddenWord(key)) return null;
+  const direct = library().find((w) => w.lower === key);
   if (direct) return direct;
-  return userWords.find((w) => w.lower === lower) || BUILTIN.find((w) => w.lower === lower) || null;
+  const extra = userWords.find((w) => w.lower === key) || BUILTIN.find((w) => w.lower === key) || null;
+  return extra && !isHiddenWord(extra) ? extra : null;
 }
 
 function quickFilterPass(w) {
@@ -864,6 +1116,10 @@ async function loadState() {
   if (kv.stats) stats = Object.assign(stats, kv.stats);
   daily = kv.daily && typeof kv.daily === 'object' ? kv.daily : {};
   wrongBook = Array.isArray(kv.wrong) ? kv.wrong : [];
+  blockedOrder = Array.isArray(kv.blocked)
+    ? kv.blocked.map((w) => normalizeEnglish(w)).filter(Boolean)
+    : [];
+  blockedWords = new Set(blockedOrder);
   if (kv.content && Array.isArray(kv.content.words)) {
     remoteWords = kv.content.words.map((w) => makeWord(w, 'remote')).filter(Boolean);
     contentInfo = {
@@ -1121,6 +1377,36 @@ function pickerEmptyHTML(plan) {
     </div>`;
 }
 
+/* 听音方向是否可用的硬门槛：当前队列里至少要有一个带离线音频的词 */
+function planAudioWords() {
+  if (filtersActive()) return filteredWords();
+  if (pickerScope === 'library') return library();
+  const plan = buildQueue('review', 'all', false);
+  return plan.length ? plan : library();
+}
+
+function planHasOfflineAudio() {
+  if (!FEATURES.listenDictation || !AUDIO.index) return false;
+  return planAudioWords().some(hasOfflineAudio);
+}
+
+function syncListenAvailability() {
+  const btn = $('directionSeg') && $('directionSeg').querySelector('button[data-dir="listen"]');
+  const note = $('directionNote');
+  const canListen = planHasOfflineAudio();
+  if (btn) btn.disabled = !canListen;
+  if (note) {
+    note.hidden = canListen;
+    if (!canListen) note.textContent = '当前队列没有可播放的离线发音，听音拼写不可用';
+  }
+  // 方向回退不在这里做：渲染只更新可用态，真正开始时按卡决定（见 startSession 的 makeCard 回落）
+  // 状态可能刚被回退，重新同步方向按钮与答题方式可用性
+  document.querySelectorAll('#directionSeg button').forEach((b) => b.classList.toggle('active', b.dataset.dir === settings.direction));
+  const listen = settings.direction === 'listen';
+  document.querySelectorAll('#answerSeg button').forEach((b) => { b.disabled = listen; });
+  $('answerSeg').classList.toggle('is-disabled', listen);
+}
+
 function renderPickerState() {
   const plan = pickerPlan();
   $('pickerCount').textContent = plan.count;
@@ -1139,6 +1425,8 @@ function renderPickerState() {
     ? plan.button
     : plan.kind === 'library' ? '从全库开始练习' : '开始练习';
   btn.disabled = plan.count === 0;
+
+  syncListenAvailability();
 
   $('scopeSeg').hidden = filtersActive();
   document.querySelectorAll('#scopeSeg button').forEach((b) => {
@@ -1369,13 +1657,14 @@ function renderLibrary() {
 
 /* ---------- 错题本 ---------- */
 function renderWrong() {
-  $('wrongCount').textContent = `${wrongBook.length} 词`;
+  const visible = wrongBook.filter((x) => !isHiddenWord(x.word));
+  $('wrongCount').textContent = `${visible.length} 词`;
   const box = $('wrongList');
-  if (!wrongBook.length) {
+  if (!visible.length) {
     box.innerHTML = '<div class="empty-state"><b>错题本是空的</b>练习中答错的词会自动收进来，答对后自动移出。</div>';
     return;
   }
-  box.innerHTML = wrongBook.slice(0, 30).map((x) => `
+  box.innerHTML = visible.slice(0, 30).map((x) => `
     <div class="wrong-item" data-wrong="${esc(x.word)}">
       <div class="wi-main">
         <div class="wi-word">${esc(x.word)} <span class="tag">错 ${x.count || 1} 次</span></div>
@@ -1768,7 +2057,10 @@ function buildQueue(source, count, doShuffle, drillRoot) {
     const r = rootData && rootData.roots ? rootData.roots[drillRoot] : null;
     words = (r ? r.family : []).map((l) => findWord(l)).filter(Boolean);
   } else {
-    words = wrongBook.map((x) => findWord(x.word.toLowerCase()) || makeWord(x, 'user')).filter(Boolean);
+    words = wrongBook
+      .filter((x) => !isHiddenWord(x.word))
+      .map((x) => findWord(x.word.toLowerCase()) || makeWord(x, 'user'))
+      .filter(Boolean);
   }
   if (doShuffle && source !== 'review') words = shuffle(words);
   if (source === 'drill') return words.slice(0, ROOT_DRILL_MAX);
@@ -1782,7 +2074,13 @@ const DIR_LABELS = { en2zh: '英译中', zh2en: '中译英', listen: '听音拼�
 function directionLabel(dir) { return DIR_LABELS[dir] || '英译中'; }
 
 function makeCard(w) {
-  const dir = (settings.direction === 'listen' && !FEATURES.listenDictation) ? 'en2zh' : settings.direction;
+  let dir = settings.direction;
+  let audioGated = false;
+  // 硬门槛：听音方向只给音频索引里真实存在的词，查不到的词降为文字练习并说明原因
+  if (dir === 'listen' && !hasOfflineAudio(w)) {
+    dir = 'en2zh';
+    audioGated = true;
+  }
   const conf = wordConfidence(w);
   let steps;
   if (dir === 'listen') {
@@ -1799,6 +2097,7 @@ function makeCard(w) {
   return demoteListenSteps({
     word: w,
     dir,
+    audioGated,
     method: settings.answerType,
     confidence: conf,
     steps,
@@ -2001,12 +2300,13 @@ function choiceHTML(card) {
 function guessHTML(card) {
   const w = card.word;
   const isEn = card.dir === 'en2zh';
+  ensureChoices(card);
   return `
     <div class="reveal-anim">
       <div class="prompt-label">${stepPrefix(card, 'guess')}${isEn ? '猜中文意思' : '写出英文单词'}</div>
       ${isEn
         ? `<div class="word-display small">${wordDisplayHTML(w)}</div>
-           <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button></div>
+           <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button><button class="block-word-btn" type="button" data-action="block-word" aria-label="不再出现这个词" title="不再出现这个词">别出现</button></div>
            <p class="hint-line">${card.steps.includes('breakdown') ? '根据刚才的词缀拆解，猜一猜它的中文意思。' : '根据词形线索，猜一猜它的中文意思。'}</p>`
         : `<div class="meaning-list">${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}</div>
            <p class="hint-line">根据释义、词性和字母提示，写出对应的英文单词。</p>`}
@@ -2057,7 +2357,7 @@ function revealHTML(card) {
       ${verdict}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
-        <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button></div>
+        <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button><button class="block-word-btn" type="button" data-action="block-word" aria-label="不再出现这个词" title="不再出现这个词">别出现</button></div>
         ${wordMetaHTML(w)}
         <div class="meaning-list">
           ${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}
@@ -2084,7 +2384,7 @@ function recallHTML(card) {
         <div class="meaning-item"><span class="idx">释义</span><span>${esc(w.meanings.join('；'))}</span></div>
         <div class="meaning-item"><span class="idx">提示</span><span class="letter-hint">${esc(letterPattern(w.word))}</span></div>
       </div>
-      <input class="answer-input" id="recallInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入英文单词" />
+      <input class="answer-input" id="recallInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入英文单词" value="${esc(card.recallTyped || '')}" />
       <div class="action-row">
         <button class="btn primary" type="button" data-action="submit-recall">提交拼写</button>
         <button class="btn ghost" type="button" data-action="give-up">想不起来，看答案</button>
@@ -2174,7 +2474,7 @@ function resultHTML(card) {
         : verdictHTML('bad', '×', `这次没${card.dir === 'listen' ? '听对' : '拼对'}。正确答案是 <strong>${esc(w.word)}</strong>，已自动加入错题本。`)}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
-        <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button></div>
+        <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button><button class="block-word-btn" type="button" data-action="block-word" aria-label="不再出现这个词" title="不再出现这个词">别出现</button></div>
         ${wordMetaHTML(w)}
         <div class="meaning-list">
           ${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}
@@ -2216,6 +2516,7 @@ function sessionFilterTags() {
 }
 
 function renderSession() {
+  clearPlayingState();
   const onPractice = document.body.dataset.currentView === 'practice';
   const active = !!session && !sessionEditing && onPractice;
   document.body.classList.toggle('is-session', !!session && onPractice);
@@ -2261,7 +2562,9 @@ function renderSession() {
   else if (stage === 'recall') html = recallHTML(card);
   else if (stage === 'listen') html = listenHTML(card);
   else html = resultHTML(card);
-  body.innerHTML = stageBarHTML(card) + html;
+  body.innerHTML = stageBarHTML(card)
+    + (card.audioGated && card.step === 0 ? '<p class="hint-line audio-gate-note">这个词没有离线发音，本次用文字练习。</p>' : '')
+    + html;
   // 提前把这一个词的音频取到内存，点击发音时无需等网络
   prefetchAudio(card.word.word);
 
@@ -2272,48 +2575,21 @@ function renderSession() {
   if (stage === 'listen') applyListenEntry(card);
 }
 
-/* ---------- 听音拼写：进入、播放、降级 ---------- */
+/* ---------- 听音拼写：进入、播放、降级 ----------
+   只用离线音频：索引里查不到就降级为文字练习，绝不调用系统朗读。 */
 function applyListenEntry(card) {
   if (!FEATURES.listenDictation) return;
   if (card.listenEntryDone) return;
   card.listenEntryDone = true;
-  if (VOICE.status === 'unsupported') {
-    switchListenToRecall(card, '这台浏览器不支持语音播放，已改为看释义拼写');
-    return;
-  }
-  if (VOICE.status === 'none' && !VOICE.forced) {
-    // iOS Safari 在无手势时 getVoices() 常返回空，进入卡片时（刚点过开始）再探测一次，避免误判
-    probeVoice().then((status) => {
-      if (!session || cardStage(card) !== 'listen') return;
-      if (status === 'none') markListenFallback(card);
-      else if (status === 'ok') startListenAuto(card);
-    });
-    return;
-  }
-  if (VOICE.status === 'none') {
-    markListenFallback(card);
-    return;
-  }
-  startListenAuto(card);
-}
-
-function startListenAuto(card) {
-  if (card.listenFailed) return;
-  const canAuto = VOICE.unlocked || (VOICE.status === 'ok' && !isIOS());
-  if (!canAuto) return; // iOS / 未解锁：等用户点播放按钮
-  card.audioAutoTried = true;
-  setTimeout(() => playListenAudio(card, { auto: true }), 60);
-}
-
-function markListenFallback(card) {
-  if (card.listenFailed) return;
-  card.listenFailed = true;
-  if (card.word.phonetic) {
-    card.listenFallback = 'phonetic';
-    renderSession();
-  } else {
-    switchListenToRecall(card, '发音不可用，且这个词没有音标，已改为看释义拼写');
-  }
+  const key = audioKey(card.word.word);
+  if (!key || !hasOfflineAudio(card.word)) { handleListenFailure(card, 'no-file'); return; }
+  if (AUDIO.urls.has(key)) return;
+  // 进入卡片先预取当前词所在分片，最多等 5 秒；失败只降级，不阻塞答题
+  loadAudioWithTimeout(key, 5000).then((url) => {
+    if (!url && session && cardStage(card) === 'listen' && !card.audioPlayed) {
+      handleListenFailure(card, 'timeout');
+    }
+  });
 }
 
 function switchListenToRecall(card, note) {
@@ -2325,26 +2601,42 @@ function switchListenToRecall(card, note) {
   if (note) toast(note);
 }
 
+/* 听音卡只用离线音频，失败时按原因给出明确文案并降级为看词拼写 */
 function handleListenFailure(card, reason) {
-  if (reason === 'unsupported') {
-    switchListenToRecall(card, '这台浏览器不支持语音播放，已改为看释义拼写');
-    return;
-  }
+  if (card.listenFailed && card.listenFallback) return;
+  // 整块重绘前先把已敲的字存进卡片，重绘后回填并恢复焦点
+  const typed = document.getElementById('recallInput');
+  if (typed) card.recallTyped = typed.value;
+  const note = reason === 'timeout'
+    ? '这个词的音频取不到或超时，已改为看词拼写'
+    : reason === 'blocked'
+      ? '发音被浏览器拦截，已改为看音标拼写'
+      : '这个词的音频不可用，已改为看词拼写';
   if (card.word.phonetic) {
     card.listenFailed = true;
     card.listenFallback = 'phonetic';
     renderSession();
-    toast('发音不可用，已显示音标');
+    restoreRecallFocus();
+    toast(note);
   } else {
-    switchListenToRecall(card, '发音不可用，且这个词没有音标，已改为看释义拼写');
+    switchListenToRecall(card);
+    toast(note);
   }
 }
 
-async function playListenAudio(card, opts) {
-  const o = opts || {};
+/* 降级重绘后把焦点还给拼写输入框，光标移到末尾 */
+function restoreRecallFocus() {
+  const inp = document.getElementById('recallInput');
+  if (!inp) return;
+  try { inp.focus(); const n = inp.value.length; inp.setSelectionRange(n, n); } catch (e) { /* ignore */ }
+}
+
+async function playListenAudio(card) {
   if (!session || cardStage(card) !== 'listen') return;
   card.audioPlayed = true;
-  const res = await speakWord(card.word.word, { rate: settings.listenRate });
+  unlockAudio();
+  const key = audioKey(card.word.word);
+  const res = await playAudioFile(card.word.word, settings.listenRate); // 只听离线音频，不退到 TTS
   if (!session || cardStage(card) !== 'listen') return; // 播放期间已切题
   if (res.ok) {
     if (card.listenFailed) {
@@ -2357,8 +2649,7 @@ async function playListenAudio(card, opts) {
     }
     return;
   }
-  // 自动播放可能被浏览器拦截，不视为“语音不可用”
-  if (o.auto && (res.reason === 'no-start' || res.reason === 'stalled')) return;
+  if (res.reason === 'decode') markAudioBroken(key);
   handleListenFailure(card, res.reason);
 }
 
@@ -2385,24 +2676,102 @@ function renderFinish() {
       </div>
     </div>`;
 }/* ---------- 训练动作与评分 ---------- */
+/* 干扰项安全池：敏感词、用户屏蔽、近义、拼写只差 1~2 字母的候选一律不选。
+   近义判定用释义的归一化字符串与二字片段做交集，双向检查（中译英/英译中都适用）。 */
+function meaningSignature(w) {
+  if (w._mSig) return w._mSig;
+  const sig = new Set();
+  const full = [];
+  (w.meanings || []).forEach((m) => {
+    const n = normalizeChinese(m);
+    if (!n) return;
+    full.push(n);
+    sig.add(n);
+    for (let i = 0; i + 2 <= n.length; i++) sig.add(n.slice(i, i + 2));
+  });
+  w._mSig = sig;
+  w._mFull = full;
+  return sig;
+}
+
+function meaningsOverlap(a, b) {
+  if (!a || !b) return false;
+  const sa = meaningSignature(a);
+  const sb = meaningSignature(b);
+  for (const s of sa) if (sb.has(s)) return true;
+  // 单字/短释义（如「血」与「血统」）二字片段不重合，再补一次包含判断
+  return (a._mFull || []).some((x) => (b._mFull || []).some((y) => x.includes(y) || y.includes(x)));
+}
+
+function spellingTooClose(a, b) {
+  const x = normalizeEnglish(a);
+  const y = normalizeEnglish(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if (Math.abs(x.length - y.length) > 2) return false;
+  // 词长短于 3 时编辑距离 2 几乎等于任意替换，按 1 处理
+  const limit = Math.min(2, x.length <= 3 || y.length <= 3 ? 1 : 2);
+  return levenshtein(x, y) <= limit;
+}
+
+function distractorScore(cand, correct) {
+  let s = 0;
+  const posA = correct.pos || [];
+  const sharedPos = (cand.pos || []).filter((p) => posA.includes(p)).length;
+  if (sharedPos) s += 30 + (sharedPos - 1) * 8;
+  if (correct.prefixes[0] && cand.prefixes[0] && correct.prefixes[0] === cand.prefixes[0]) s += 12;
+  if (correct.suffixes[0] && cand.suffixes[0] && correct.suffixes[0] === cand.suffixes[0]) s += 12;
+  if (correct.freqRank && cand.freqRank) {
+    const d = Math.abs(correct.freqRank - cand.freqRank);
+    s += d < 500 ? 18 : d < 2000 ? 11 : d < 5000 ? 5 : 0;
+  }
+  s += Math.max(0, 10 - Math.abs(correct.word.length - cand.word.length));
+  return s + Math.random() * 2; // 同分候选轻微打散，避免长期固定几个词
+}
+
+function insertBest(best, item, max) {
+  best.push(item);
+  best.sort((a, b) => b.score - a.score);
+  if (best.length > max) best.pop();
+}
+
 function buildChoices(card) {
   const dir = card.dir;
-  const correctText = dir === 'en2zh' ? card.word.meanings.join('；') : card.word.word;
+  const correct = card.word;
+  const correctText = dir === 'en2zh' ? correct.meanings.join('；') : correct.word;
   const seen = new Set([dir === 'en2zh' ? normalizeChinese(correctText) : normalizeEnglish(correctText)]);
   const options = [{ text: correctText, ok: true }];
-  const pool = shuffle(library().filter((w) => w.lower !== card.word.lower));
-  for (const w of pool) {
+  const best = [];
+  for (const w of library()) {
+    if (w.lower === correct.lower) continue;
+    if (!isDistractorSafe(w)) continue;
     const text = dir === 'en2zh' ? (w.meanings[0] || '') : w.word;
     if (!text) continue;
     const norm = dir === 'en2zh' ? normalizeChinese(text) : normalizeEnglish(text);
     if (!norm || seen.has(norm)) continue;
-    // 中译英选项里不能出现同义词：begin 的题里混进 start 就没有唯一正确答案了
-    if (dir !== 'en2zh' && w.meanings.some((m) => looseChineseMatch(m, card.word.meanings))) continue;
-    seen.add(norm);
-    options.push({ text, ok: false });
-    if (options.length === 4) break;
+    if (best.some((b) => b.norm === norm)) continue;
+    const score = distractorScore(w, correct);
+    // 便宜的分数剪枝：进不了前三就不做近义/拼写的高开销判定
+    if (best.length === 3 && score <= best[2].score) continue;
+    // 中文释义方向也要排除近义：begin 的题里不能出现「开始」这种选项
+    if (meaningsOverlap(w, correct)) continue;
+    if (spellingTooClose(w.word, correct.word)) continue;
+    insertBest(best, { text, norm, score }, 3);
+  }
+  best.forEach((b) => options.push({ text: b.text, ok: false }));
+  // 选项池不足 4 个时，别把答案混进少数选项：直接转输入题
+  if (options.length < 4) {
+    card.choices = [];
+    card.method = 'input';
+    return;
   }
   card.choices = shuffle(options);
+}
+
+/* 渲染前确保选项池已就绪：buildChoices 可能把这一卡从选择改成输入 */
+function ensureChoices(card) {
+  if (card.method !== 'choice') return;
+  if (!card.choices.length) buildChoices(card);
 }
 
 function looseChineseMatch(input, meanings) {
@@ -2474,11 +2843,14 @@ function startSession(source, countOverride, opts) {
   stopSpeaking();
   releaseRecorder();
   lastAudioKey = '';
+  const wantListen = settings.direction === 'listen';
+  const listenable = wantListen && words.some(hasOfflineAudio);
+  if (wantListen && !listenable) toast('当前队列没有可播放的离线发音，已改为英译中');
   session = {
     source,
     drillRoot: o.drillRoot || '',
     countMode: count,
-    direction: (settings.direction === 'listen' && !FEATURES.listenDictation) ? 'en2zh' : settings.direction,
+    direction: listenable ? 'listen' : (wantListen ? 'en2zh' : settings.direction),
     filtersSnapshot: snapshotFilters(),
     queue: words.map(makeCard),
     index: 0,
@@ -2749,6 +3121,52 @@ function nextCard() {
   renderPractice();
 }
 
+/* 词卡上的「别出现」：写入本地黑名单，并把当前词从正在进行的队列里立即剔除 */
+function blockCurrentWord() {
+  const card = currentCard();
+  if (!session || !card) return;
+  const lower = card.word.lower;
+  if (!addBlockedWord(lower)) {
+    toast('这个词已经在屏蔽列表里');
+    return;
+  }
+  const idx = session.index;
+  let removedBefore = 0;
+  const kept = [];
+  session.queue.forEach((c, i) => {
+    if (c && c.word && c.word.lower === lower) {
+      if (i < idx) removedBefore += 1;
+      return;
+    }
+    kept.push(c);
+  });
+  session.queue = kept;
+  session.total = kept.length;
+  session.index = Math.max(0, idx - removedBefore);
+  sessionEditing = false;
+  card.blocked = true;
+  if (!kept.length || session.index >= kept.length) session.finished = true;
+  renderSession();
+  renderPractice();
+  // 错题本同步移除，避免屏蔽后还能从错题本重练
+  const beforeWrong = wrongBook.length;
+  wrongBook = wrongBook.filter((x) => String(x.word || '').toLowerCase() !== lower);
+  if (wrongBook.length !== beforeWrong) { saveWrong(); renderWrong(); }
+  toast(`已屏蔽「${card.word.word}」，之后的练习不再出现`);
+}
+
+function undoBlockedFromSettings() {
+  const k = undoBlockedWord();
+  if (!k) {
+    toast('没有可撤销的屏蔽词');
+    return;
+  }
+  invalidateLib();
+  renderLibrary();
+  renderPractice();
+  toast(`已恢复「${k}」`);
+}
+
 function restartSession() {
   if (!session) return;
   const src = session.source;
@@ -2785,6 +3203,7 @@ const VIEWS = ['practice', 'library', 'data'];
 
 function showView(name, opts = {}) {
   if (!VIEWS.includes(name)) name = 'practice';
+  clearPlayingState();
   document.body.dataset.currentView = name;
   document.body.classList.toggle('is-session', !!session && name === 'practice');
   document.querySelectorAll('.view').forEach((v) => { v.hidden = v.dataset.view !== name; });
@@ -3003,6 +3422,21 @@ function showImportErrors(errors) {
 function showImportOk(html) { $('importResult').innerHTML = `<div class="import-ok">${html}</div>`; }
 function clearImportMessages() { $('importErrors').innerHTML = ''; $('importResult').innerHTML = ''; }
 
+/* 导入后的音频命中率：拿词去比对 audio/index.json 的真实收录情况，不按假设覆盖率估算 */
+async function audioCoverageLine(words) {
+  const keys = new Set();
+  (words || []).forEach((w) => {
+    const k = audioKey(typeof w === 'string' ? w : (w && w.word));
+    if (k) keys.add(k);
+  });
+  if (!keys.size) return '';
+  const idx = await loadAudioIndex();
+  if (!idx || !idx.words) return '音频命中率暂时无法统计（音频索引没加载到）。';
+  let hit = 0;
+  keys.forEach((k) => { if (idx.words[k]) hit++; });
+  return `其中 ${hit} 个词有标准音频，${keys.size - hit} 个词将使用系统朗读。`;
+}
+
 function mergeImported(list, format) {
   let added = 0;
   let replaced = 0;
@@ -3045,16 +3479,20 @@ async function handleFile(file) {
       }
       if (r.words.length) {
         const merged = mergeImported(r.words, 'txt');
+        const cover = await audioCoverageLine(r.words);
         showImportOk(`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）。`
+          + (cover ? ` ${cover}` : '')
           + (r.listWords.length ? ` 另有 ${r.listWords.length} 个纯单词已存为「粘贴批次」，<button type="button" class="btn tiny" data-start-list>用这批词开始 →</button>` : ''));
         track('import_success', { format: 'txt', added: merged.added, replaced: merged.replaced });
         toast(`TXT 导入完成，共 ${merged.added + merged.replaced} 条`);
         return;
       }
       if (r.listWords.length) {
+        const cover = await audioCoverageLine(r.listWords);
         showImportOk(`纯词表命中 ${r.listWords.length} 个内置词`
           + (r.listUnknown.length ? `，未收录 ${r.listUnknown.length} 个已跳过` : '')
-          + `。<button type="button" class="btn tiny" data-start-list>用这批词开始 →</button>`);
+          + `。${cover ? ` ${cover}` : ''}`
+          + `<button type="button" class="btn tiny" data-start-list>用这批词开始 →</button>`);
         syncPasteEntry();
         toast(`识别到 ${r.listWords.length} 个词，可以开始练习`);
         return;
@@ -3071,10 +3509,11 @@ async function handleFile(file) {
       return;
     }
     const merged = mergeImported(result.words, ext);
+    const cover = await audioCoverageLine(result.words);
     const parts = [`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）`];
     if (merged.invalid) parts.push(`跳过 ${merged.invalid} 条重复或无效`);
     if (result.errors.length) parts.push(`另有 ${result.errors.length} 条有问题已标红`);
-    showImportOk(parts.join('，') + '。');
+    showImportOk(parts.join('，') + '。' + (cover ? ` ${cover}` : ''));
     track('import_success', { format: ext, added: merged.added, replaced: merged.replaced, errors: result.errors.length });
     toast(`导入完成，共 ${merged.added + merged.replaced} 条`);
   } catch (e) {
@@ -3235,7 +3674,8 @@ function parseTXTWords(text) {
 async function loadSampleLibrary() {
   clearImportMessages();
   const merged = mergeImported(SAMPLE_WORDS, 'sample');
-  showImportOk(`已载入示例词表 ${merged.added + merged.replaced} 条，可以直接去练习或筛选。`);
+  const cover = await audioCoverageLine(SAMPLE_WORDS);
+  showImportOk(`已载入示例词表 ${merged.added + merged.replaced} 条，可以直接去练习或筛选。${cover ? ` ${cover}` : ''}`);
   track('import_success', { format: 'sample', added: merged.added, replaced: merged.replaced });
   toast('示例词表已载入');
 }
@@ -3527,6 +3967,22 @@ function setupPWA() {
 
 /* ---------- 事件绑定 ---------- */
 function bindEvents() {
+  // 播放态兜底：离开页面、切后台、失焦、指针取消时都清掉绿色，
+  // 避免回调丢失或触摸序列被系统打断后按钮永久处于播放态。
+  window.addEventListener('blur', clearPlayingState);
+  window.addEventListener('pagehide', clearPlayingState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearPlayingState(); stopSpeaking(); }
+  });
+  document.addEventListener('pointercancel', clearPlayingState, true);
+
+  $('clearAudioCacheBtn').addEventListener('click', clearAudioCache);
+  $('unblockBtn').addEventListener('click', undoBlockedFromSettings);
+  const settingsPanel = document.querySelector('.practice-settings');
+  if (settingsPanel) {
+    settingsPanel.addEventListener('toggle', () => { if (settingsPanel.open) refreshAudioCacheStat(); });
+  }
+
   $('startPickerBtn').addEventListener('click', startFromPicker);
   $('cancelEditBtn').addEventListener('click', cancelPickerEdit);
   $('sessionFilterBar').addEventListener('click', openPickerForSession);
@@ -3550,6 +4006,10 @@ function bindEvents() {
   $('directionSeg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-dir]');
     if (!b) return;
+    if (b.dataset.dir === 'listen' && !planHasOfflineAudio()) {
+      toast('当前队列没有可播放的离线发音，听音拼写不可用');
+      return;
+    }
     settings.direction = b.dataset.dir;
     saveSettings();
     syncSettingsUI();
@@ -3795,7 +4255,11 @@ function bindEvents() {
         b.classList.toggle('active', Number(b.dataset.rate) === settings.listenRate);
       });
       const card = currentCard();
-      if (card) playListenAudio(card);
+      if (card) {
+        const playBtn = document.querySelector('.listen-play');
+        if (playBtn) setPlayingState(playBtn, 8000);
+        playListenAudio(card).finally(clearPlayingState);
+      }
       return;
     }
     const choice = e.target.closest('[data-choice]');
@@ -3809,19 +4273,29 @@ function bindEvents() {
     else if (action === 'submit-recall') submitRecall();
     else if (action === 'give-up') giveUp();
     else if (action === 'next-card') nextCard();
+    else if (action === 'block-word') blockCurrentWord();
     else if (action === 'restart') restartSession();
     else if (action === 'speak-word') {
       const card = currentCard();
-      if (card) speakWord(card.word.word);
+      if (card) {
+        setPlayingState(btn, 8000);
+        speakWord(card.word.word).finally(clearPlayingState);
+      }
     } else if (action === 'play-audio') {
       const card = currentCard();
-      if (card) playListenAudio(card);
+      if (card) {
+        setPlayingState(btn, 8000);
+        playListenAudio(card).finally(clearPlayingState);
+      }
     } else if (action === 'listen-to-recall') {
       const card = currentCard();
       if (card) switchListenToRecall(card, '已改为看释义拼写');
     } else if (action === 'follow-play') {
       const card = currentCard();
-      if (card) speakWord(card.word.word, { rate: 1 });
+      if (card) {
+        setPlayingState(btn, 8000);
+        speakWord(card.word.word, { rate: 1 }).finally(clearPlayingState);
+      }
     } else if (action === 'follow-record') toggleFollowRecording();
     else if (action === 'follow-done') markFollowDone();
     else if (action === 'go-wrong') {
@@ -3856,6 +4330,7 @@ function bindEvents() {
 }
 
 function startSessionForWord(word) {
+  if (isHiddenWord(String(word))) return; // 屏蔽/下架词不许从错题本复活
   const w = findWord(String(word).toLowerCase()) || makeWord({ word, meanings: ['（词条已删除，仅保留错题记录）'] }, 'user');
   if (!w) return;
   stopSpeaking();
@@ -3864,7 +4339,7 @@ function startSessionForWord(word) {
   session = {
     source: 'wrong',
     countMode: 'single',
-    direction: settings.direction,
+    direction: settings.direction === 'listen' && !hasOfflineAudio(w) ? 'en2zh' : settings.direction,
     filtersSnapshot: snapshotFilters(),
     queue: [makeCard(w)],
     index: 0,
@@ -3944,11 +4419,19 @@ async function init() {
   initScrollbarHint();
   await loadState();
   await loadRootContent();
+  // 敏感性清单决定练习库与干扰项安全池，必须在任何队列/选项卡生成之前加载
+  await loadSensitiveContent();
   buildFilterOptions();
   bindEvents();
   syncSettingsUI();
+  refreshAudioCacheStat();
+  refreshBlockedUI();
   renderAll();
   showView('practice', { scroll: false });
+  // 音频索引（约 89KB）后台加载：索引没回来时听音入口先按不可用展示，到达后刷新可用态
+  loadAudioIndex()
+    .then(() => { syncListenAvailability(); if (currentCard()) renderSession(); })
+    .catch(() => null);
   track('app_open', { db: DB.mode.current, version: CONFIG.version });
   setupPWA();
   refreshRemoteContent();
@@ -3989,6 +4472,18 @@ async function init() {
     renderSession,
     gradeEnglish,
     buildChoices,
+    get sensitive() {
+      return { loaded: SENSITIVE.loaded, count: SENSITIVE.words.size, removed: Array.from(SENSITIVE.removed) };
+    },
+    isSensitiveWord,
+    isDistractorSafe,
+    isHiddenWord,
+    isUnsafeMeaningText: isSubstringUnsafeMeaning,
+    meaningsOverlap,
+    spellingTooClose,
+    blockWord: addBlockedWord,
+    unblockLast: undoBlockedWord,
+    get blockedWords() { return Array.from(blockedWords); },
     buildProgressPayload,
     get stats() { return stats; }
   };

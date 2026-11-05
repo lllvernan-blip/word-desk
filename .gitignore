@@ -8,3 +8,10 @@ output/pronunciation-ab/__pycache__/
 output/pronunciation-ab/*.mp3
 output/pronunciation-ab/*.ogg
 output/pronunciation-ab/*.wav
+_archive/output-20261105/pronunciation-ab/audio-ljspeech/
+_archive/output-20261105/pronunciation-ab/kokoro/
+_archive/output-20261105/pronunciation-ab/voices/
+_archive/output-20261105/pronunciation-ab/__pycache__/
+_archive/output-20261105/pronunciation-ab/*.mp3
+_archive/output-20261105/pronunciation-ab/*.ogg
+_archive/output-20261105/pronunciation-ab/*.wav

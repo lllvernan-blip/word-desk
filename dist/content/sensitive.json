@@ -1,0 +1,428 @@
+{
+  "version": 1,
+  "generatedAt": "2026-11-05",
+  "sourceCount": 3403,
+  "flaggedCount": 29,
+  "removedCount": 5,
+  "removed": [
+    "ass",
+    "bloody",
+    "rape",
+    "sex",
+    "sexual"
+  ],
+  "method": {
+    "lexicon": "自建高频脏话/slur/性/暴力/毒品英文词头清单，按词头精确匹配（不靠释义直觉）",
+    "meaningScan": "对词典中文释义做敏感词表扫描（粗俗/侮辱/性/暴力/毒品/成瘾），并人工复核同形歧义",
+    "manualReview": "已剔除 execution（实行）、trash/waste（垃圾废物本义）、salmon（大麻哈鱼）等误报；补充 assassination/casualty/abortion",
+    "severity": "high=脏话/slur/性（从内置库剔除）；medium=暴力/毒品/侮辱/其他争议（保留但永不作为干扰项）",
+    "slurNote": "内置 3403 词中未检出针对种族/性别/地域/宗教的英文蔑称词头；人身攻击词归入 insult"
+  },
+  "categories": {
+    "profanity": "脏话与粗俗语",
+    "slur": "种族、性别、地域、宗教歧视",
+    "sexual": "性相关与色情",
+    "violence": "暴力、血腥、犯罪",
+    "drug": "毒品与成瘾",
+    "insult": "侮辱性的人身攻击词汇",
+    "other": "其他会引起不适或争议的"
+  },
+  "words": [
+    {
+      "word": "abortion",
+      "meaning": "流产，堕胎",
+      "pos": "n",
+      "categories": [
+        "other"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:abortion",
+        "zh:堕胎"
+      ]
+    },
+    {
+      "word": "abuse",
+      "meaning": "滥用，虐待；滥用",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:abuse",
+        "zh:虐待"
+      ]
+    },
+    {
+      "word": "addict",
+      "meaning": "使沉溺，使上瘾；入迷的人",
+      "pos": "v,n",
+      "categories": [
+        "drug"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:addict"
+      ]
+    },
+    {
+      "word": "ass",
+      "meaning": "驴，傻瓜",
+      "pos": "n",
+      "categories": [
+        "profanity"
+      ],
+      "severity": "high",
+      "removed": true,
+      "evidence": [
+        "headword:ass"
+      ]
+    },
+    {
+      "word": "assassination",
+      "meaning": "暗杀",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:assassination",
+        "zh:暗杀"
+      ]
+    },
+    {
+      "word": "assault",
+      "meaning": "攻击，袭击；袭击",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:assault"
+      ]
+    },
+    {
+      "word": "blood",
+      "meaning": "血，血统；使出血",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:blood"
+      ]
+    },
+    {
+      "word": "bloody",
+      "meaning": "血腥的，嗜杀的",
+      "pos": "adj",
+      "categories": [
+        "profanity",
+        "violence"
+      ],
+      "severity": "high",
+      "removed": true,
+      "evidence": [
+        "headword:bloody",
+        "headword:bloody",
+        "zh:血腥"
+      ]
+    },
+    {
+      "word": "casualty",
+      "meaning": "意外事故，伤亡",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:casualty",
+        "zh:伤亡"
+      ]
+    },
+    {
+      "word": "cocaine",
+      "meaning": "可卡因，古柯碱",
+      "pos": "n",
+      "categories": [
+        "drug"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:cocaine",
+        "zh:可卡因"
+      ]
+    },
+    {
+      "word": "corpse",
+      "meaning": "尸体",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:corpse",
+        "zh:尸体"
+      ]
+    },
+    {
+      "word": "drug",
+      "meaning": "药，麻药；吸毒",
+      "pos": "n,v",
+      "categories": [
+        "drug"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:drug",
+        "zh:吸毒"
+      ]
+    },
+    {
+      "word": "heroin",
+      "meaning": "海洛因，吗啡",
+      "pos": "n",
+      "categories": [
+        "drug"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:heroin",
+        "zh:海洛因"
+      ]
+    },
+    {
+      "word": "homicide",
+      "meaning": "杀人，杀人者",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:homicide"
+      ]
+    },
+    {
+      "word": "idiot",
+      "meaning": "白痴，极蠢之人",
+      "pos": "n",
+      "categories": [
+        "insult"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:idiot",
+        "zh:白痴"
+      ]
+    },
+    {
+      "word": "insane",
+      "meaning": "患精神病的，极愚蠢的",
+      "pos": "adj",
+      "categories": [
+        "insult"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:insane"
+      ]
+    },
+    {
+      "word": "intercourse",
+      "meaning": "交往，交流",
+      "pos": "n",
+      "categories": [
+        "sexual"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:intercourse"
+      ]
+    },
+    {
+      "word": "jerk",
+      "meaning": "性情古怪的人，急拉；痉挛",
+      "pos": "n,v",
+      "categories": [
+        "insult"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:jerk"
+      ]
+    },
+    {
+      "word": "kill",
+      "meaning": "杀，杀戮；杀",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:kill"
+      ]
+    },
+    {
+      "word": "killer",
+      "meaning": "(非正式)杀人者，屠杀者",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "zh:屠杀"
+      ]
+    },
+    {
+      "word": "massacre",
+      "meaning": "大屠杀；大屠杀",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:massacre",
+        "zh:屠杀"
+      ]
+    },
+    {
+      "word": "murder",
+      "meaning": "谋杀；谋杀",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:murder",
+        "zh:谋杀"
+      ]
+    },
+    {
+      "word": "outrage",
+      "meaning": "暴行，侮辱；凌辱",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:outrage",
+        "zh:暴行"
+      ]
+    },
+    {
+      "word": "rape",
+      "meaning": "抢夺，掠夺；掠夺",
+      "pos": "n,v",
+      "categories": [
+        "sexual"
+      ],
+      "severity": "high",
+      "removed": true,
+      "evidence": [
+        "headword:rape"
+      ]
+    },
+    {
+      "word": "sex",
+      "meaning": "性别，性欲；区别...的性别",
+      "pos": "n,v",
+      "categories": [
+        "sexual"
+      ],
+      "severity": "high",
+      "removed": true,
+      "evidence": [
+        "headword:sex",
+        "zh:性欲"
+      ]
+    },
+    {
+      "word": "sexual",
+      "meaning": "性的，性别的",
+      "pos": "adj",
+      "categories": [
+        "sexual"
+      ],
+      "severity": "high",
+      "removed": true,
+      "evidence": [
+        "headword:sexual"
+      ]
+    },
+    {
+      "word": "suicide",
+      "meaning": "自杀，自杀者；自杀",
+      "pos": "n,v",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:suicide",
+        "zh:自杀"
+      ]
+    },
+    {
+      "word": "terrorist",
+      "meaning": "恐怖分子",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:terrorist",
+        "zh:恐怖分子"
+      ]
+    },
+    {
+      "word": "violence",
+      "meaning": "猛烈，暴力",
+      "pos": "n",
+      "categories": [
+        "violence"
+      ],
+      "severity": "medium",
+      "removed": false,
+      "evidence": [
+        "headword:violence",
+        "zh:暴力"
+      ]
+    }
+  ]
+}

@@ -126,6 +126,9 @@ body {
   font-family: var(--font-ui);
   font-size: 15px;
   line-height: 1.6;
+  /* iOS 放大后不许把整页拖出空白：宽高都受视口约束 */
+  overflow-x: clip;
+  max-width: 100%;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -226,7 +229,6 @@ b { font-weight: 650; }
   transition: color .18s ease;
 }
 
-.nav-item:hover { color: var(--ink); }
 .nav-item.active { color: var(--ink); }
 .nav-item.active::after {
   content: '';
@@ -280,7 +282,6 @@ b { font-weight: 650; }
   user-select: none;
 }
 
-.btn:hover { background: var(--sheet-2); border-color: var(--line-strong); }
 .btn:active { transform: translateY(1px); }
 
 .btn.primary {
@@ -290,7 +291,6 @@ b { font-weight: 650; }
   box-shadow: var(--shadow-soft);
 }
 
-.btn.primary:hover { background: color-mix(in srgb, var(--brand) 88%, var(--ink)); border-color: var(--brand); }
 
 .btn.ghost {
   background: transparent;
@@ -298,7 +298,6 @@ b { font-weight: 650; }
   color: var(--muted);
 }
 
-.btn.ghost:hover { background: var(--sheet-2); color: var(--ink); }
 
 .btn.tiny { padding: 5px 12px; font-size: 12.5px; border-radius: 8px; }
 .btn.lg { padding: 13px 30px; font-size: 15.5px; border-radius: 12px; }
@@ -325,7 +324,6 @@ b { font-weight: 650; }
   transition: color .15s ease, background .15s ease, box-shadow .15s ease;
 }
 
-.seg button:hover { color: var(--ink); }
 .seg button.active {
   background: var(--sheet);
   color: var(--ink);
@@ -344,10 +342,10 @@ b { font-weight: 650; }
   color: var(--muted);
 }
 
-input[type="text"], input[type="search"], input[type="number"], input[type="url"],
-select, .answer-input {
+input[type="text"], input[type="search"], input[type="number"], input[type="url"], input:not([type]),
+select, textarea, .answer-input {
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--ink);
   background: var(--sheet);
   border: 1px solid var(--line-strong);
@@ -357,7 +355,6 @@ select, .answer-input {
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 
-input:hover, select:hover { border-color: color-mix(in srgb, var(--line-strong) 70%, var(--ink)); }
 
 input:focus, select:focus, .answer-input:focus {
   outline: none;
@@ -648,9 +645,10 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   cursor: pointer;
   transition: color .15s ease, border-color .15s ease, background .15s ease;
 }
-.speak-btn:hover { color: var(--good); border-color: var(--good-line); background: var(--good-soft); }
 .speak-btn:active { transform: translateY(1px); }
 .speak-btn svg { display: block; }
+/* 播放态用显式 class，JS 在所有退出路径上移除 */
+.speak-btn.is-playing { color: var(--good); border-color: var(--good-line); background: var(--good-soft); }
 
 /* 词缀语义色（全站一致） */
 .seg-pre {
@@ -769,7 +767,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   transition: border-color .14s ease, background .14s ease, transform .1s ease;
 }
 
-.choice:hover { border-color: color-mix(in srgb, var(--line-strong) 60%, var(--ink)); background: var(--sheet-2); }
 .choice:active { transform: translateY(1px); }
 
 .choice.selected {
@@ -969,7 +966,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 
 .chip .n { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .chip .rz { font-family: var(--font-ui); font-size: 11px; color: var(--muted); }
-.chip:hover { border-color: var(--line-strong); background: var(--sheet-2); }
 
 .chip.active.pre { background: var(--pre-soft); border-color: var(--pre); color: var(--pre); }
 .chip.active.suf { background: var(--suf-soft); border-color: var(--suf); color: var(--suf); }
@@ -1008,7 +1004,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   transition: background .14s ease;
 }
 
-.word-card:hover { background: var(--sheet-2); }
 
 @media (min-width: 781px) {
   .word-card:nth-child(odd) { border-right: 1px solid var(--line); }
@@ -1118,7 +1113,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   transition: border-color .15s ease, background .15s ease;
 }
 
-.dropzone:hover, .dropzone.over { border-color: var(--brand); background: var(--brand-soft); }
 
 .dz-icon { font-size: 22px; color: var(--brand); }
 .dz-title { font-size: 14px; font-weight: 600; }
@@ -1404,7 +1398,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   cursor: pointer;
 }
 
-.modal-close:hover { background: var(--sheet-2); color: var(--ink); }
 
 .modal .form-grid { grid-template-columns: repeat(2, 1fr); }
 .modal .form-field:nth-child(3) { grid-column: 1 / -1; }
@@ -1766,7 +1759,7 @@ body.is-session .view-practice { max-width: 780px; }
   background: var(--sheet-2);
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -1834,6 +1827,23 @@ body.is-session .view-practice { max-width: 780px; }
 
 .setup-switch { flex-direction: row; align-items: center; gap: 8px; }
 .practice-settings > p.hint { margin-top: 10px; line-height: 1.6; }
+.audio-cache-field { grid-column: 1 / -1; }
+.audio-cache-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.audio-cache-row .btn { flex: none; }
+/* 词卡上的轻量屏蔽入口：不抢发音按钮的视觉权重 */
+.block-word-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .block-word-btn:hover { color: var(--text); border-color: var(--line-strong); }
+}
 
 /* ---- 练习页顶部：当前筛选（可修改） ---- */
 .session-sheet { padding-top: 0; }
@@ -1861,7 +1871,6 @@ body.is-session .view-practice { max-width: 780px; }
   font: inherit;
 }
 
-.session-filter:hover { background: var(--sheet-2); }
 
 .sf-tags {
   display: flex;
@@ -1978,9 +1987,9 @@ body.is-session .view-practice { max-width: 780px; }
   font: 600 15px/1 var(--font-ui); cursor: pointer;
   transition: background .18s ease, transform .1s ease;
 }
-.listen-play:hover { background: color-mix(in srgb, var(--brand) 88%, var(--ink)); }
 .listen-play:active { transform: translateY(1px); }
 .listen-play svg { width: 19px; height: 19px; }
+.listen-play.is-playing { box-shadow: 0 0 0 3px var(--brand-soft); }
 .listen-rate { background: var(--sheet-2); }
 
 .listen-fallback {
@@ -2045,7 +2054,6 @@ body.is-session .view-practice { max-width: 780px; }
 .root-chip { display: inline-flex; align-items: baseline; gap: 8px; padding: 8px 12px;
   border: 1px solid var(--line-strong); border-radius: 999px; background: var(--sheet);
   cursor: pointer; font: inherit; text-align: left; }
-.root-chip:hover { border-color: var(--brand-line); background: var(--brand-soft); }
 .root-chip .rc-form { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--brand); }
 .root-chip .rc-zh { font-size: 12.5px; color: var(--ink-2); }
 .root-chip .rc-n { font-size: 11.5px; color: var(--muted); }
@@ -2080,7 +2088,6 @@ body.is-session .view-practice { max-width: 780px; }
   cursor: pointer;
   transition: color .15s ease, border-color .15s ease, background .15s ease;
 }
-.theme-toggle:hover { color: var(--ink); border-color: var(--line-strong); background: var(--sheet-2); }
 .theme-toggle svg { width: 17px; height: 17px; }
 .theme-toggle .ico-moon { display: none; }
 :root[data-theme="dark"] .theme-toggle .ico-sun { display: none; }
@@ -2103,6 +2110,7 @@ body.is-session .view-practice { max-width: 780px; }
 .picker-result-note { font-size: 12px; }
 .picker-actions { flex-direction: column; align-items: flex-end; gap: 10px; }
 .picker-controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.direction-note { flex-basis: 100%; margin: 0; text-align: right; }
 
 /* 条件区：默认收起，展开才显分类 */
 .filter-drawer { margin-top: 18px; border-top: 1px solid var(--line); }
@@ -2181,10 +2189,6 @@ body.is-session .view-practice { max-width: 780px; }
   padding: 4px 12px;
   white-space: nowrap;
 }
-.chip-row > .chip.expand:hover { color: var(--brand); background: var(--sheet-2); border-color: var(--line-strong); }
-.chips-pre .chip:not(.expand):not(.active):hover { background: color-mix(in srgb, var(--pre-soft) 86%, var(--pre)); border-color: var(--pre); }
-.chips-suf .chip:not(.expand):not(.active):hover { background: color-mix(in srgb, var(--suf-soft) 86%, var(--suf)); border-color: var(--suf); }
-.chips-root .chip:not(.expand):not(.active):hover { background: color-mix(in srgb, var(--brand-soft) 86%, var(--brand)); border-color: var(--brand); }
 
 .chips-pre .chip:not(.expand):not(.active) { color: var(--pre); background: var(--pre-soft); border-color: color-mix(in srgb, var(--pre) 26%, transparent); }
 .chips-suf .chip:not(.expand):not(.active) { color: var(--suf); background: var(--suf-soft); border-color: color-mix(in srgb, var(--suf) 26%, transparent); }
@@ -2216,8 +2220,6 @@ body.is-session .view-practice { max-width: 780px; }
   transition: background-color .24s ease;
 }
 html.edge-near::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--ink-2) 34%, transparent); }
-html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink-2) 55%, transparent); }
-::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink-2) 48%, transparent); }
 
 .picker-title { line-height: 32px; }
 .plan-stats { min-height: 24px; }
@@ -2258,6 +2260,7 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
    16px 只为避免 iOS 聚焦时自动放大，所以限定触屏：桌面窄窗口不跟。 ---------- */
 @media (max-width: 920px) and (pointer: coarse) {
   input:not(.answer-input), select, textarea, .paste-field textarea { font-size: 16px; }
+  html, body { overflow-x: clip; }
 }
 
 /* ---------- 桌面端布局：导航居中 + 练习卡片吃满宽度 ---------- */
@@ -2266,4 +2269,31 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
   .views { max-width: 1120px; }
   body:not(.is-session) .view-practice { max-width: 960px; }
   .picker-sheet { padding: 36px 40px 28px; }
+}
+
+/* hover 只在真正有指针悬停的设备生效：触摸屏点完不会粘住绿色/高亮 */
+.dropzone.over { border-color: var(--brand); background: var(--brand-soft); }
+@media (hover: hover) {
+.nav-item:hover { color: var(--ink); }
+.btn:hover { background: var(--sheet-2); border-color: var(--line-strong); }
+.btn.primary:hover { background: color-mix(in srgb, var(--brand) 88%, var(--ink)); border-color: var(--brand); }
+.btn.ghost:hover { background: var(--sheet-2); color: var(--ink); }
+.seg button:hover { color: var(--ink); }
+input:hover, select:hover { border-color: color-mix(in srgb, var(--line-strong) 70%, var(--ink)); }
+.speak-btn:hover { color: var(--good); border-color: var(--good-line); background: var(--good-soft); }
+.choice:hover { border-color: color-mix(in srgb, var(--line-strong) 60%, var(--ink)); background: var(--sheet-2); }
+.chip:hover { border-color: var(--line-strong); background: var(--sheet-2); }
+.word-card:hover { background: var(--sheet-2); }
+.dropzone:hover { border-color: var(--brand); background: var(--brand-soft); }
+.modal-close:hover { background: var(--sheet-2); color: var(--ink); }
+.session-filter:hover { background: var(--sheet-2); }
+.listen-play:hover { background: color-mix(in srgb, var(--brand) 88%, var(--ink)); }
+.root-chip:hover { border-color: var(--brand-line); background: var(--brand-soft); }
+.theme-toggle:hover { color: var(--ink); border-color: var(--line-strong); background: var(--sheet-2); }
+.chip-row > .chip.expand:hover { color: var(--brand); background: var(--sheet-2); border-color: var(--line-strong); }
+.chips-pre .chip:not(.expand):not(.active):hover { background: color-mix(in srgb, var(--pre-soft) 86%, var(--pre)); border-color: var(--pre); }
+.chips-suf .chip:not(.expand):not(.active):hover { background: color-mix(in srgb, var(--suf-soft) 86%, var(--suf)); border-color: var(--suf); }
+.chips-root .chip:not(.expand):not(.active):hover { background: color-mix(in srgb, var(--brand-soft) 86%, var(--brand)); border-color: var(--brand); }
+html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink-2) 55%, transparent); }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink-2) 48%, transparent); }
 }
