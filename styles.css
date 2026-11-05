@@ -2335,3 +2335,40 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
   padding: 4px 0;
 }
 .format-help[open] summary { color: var(--ink-2); }
+
+/* 选词页的两个入口按钮（原先把筛选/设置直接展开，页面被拉长） */
+.picker-entries {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.picker-entry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--sheet);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.picker-entry-btn:hover { border-color: var(--line-strong); background: var(--sheet-2); }
+.picker-entry-btn .pe-meta { color: var(--brand); font-size: 12px; }
+.filter-modal { max-width: 620px; }
+.filter-modal-body { overflow-y: auto; }
+.settings-modal { max-width: 520px; }
+@media (max-width: 640px) {
+  .modal-overlay#filterModal, .modal-overlay#settingsModal { padding: 0; }
+  .modal-overlay#filterModal .modal, .modal-overlay#settingsModal .modal {
+    width: 100%;
+    max-width: none;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+}

@@ -928,6 +928,8 @@ let contentInfo = { version: BUILTIN_VERSION, source: 'builtin', updatedAt: '', 
 let libCache = null;
 let libLimit = CONFIG.pageSize;
 let filters = { q: '', pos: '', letter: '', prefixes: new Set(), suffixes: new Set(), roots: new Set(), affixQ: '' };
+/* 筛选弹窗打开时的条件快照：取消时还原 */
+let filterModalSnapshot = null;
 let session = null;
 let sessionEditing = false;
 let lastAudioKey = '';
@@ -2891,8 +2893,10 @@ function openPickerForSession() {
   renderPractice();
   renderSession();
   showView('practice');
-  const drawer = $('filterDrawer');
-  if (drawer && filtersActive()) drawer.open = true;
+  if (filtersActive() && $('filterModal')) {
+    filterModalSnapshot = snapshotFilters();
+    $('filterModal').hidden = false;
+  }
   setTimeout(() => {
     const sheet = $('pickerSheet');
     if (sheet) sheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -4194,6 +4198,15 @@ function bindEvents() {
   $('wordModal').addEventListener('click', (e) => { if (e.target === $('wordModal')) closeWordModal(); });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('wordModal').hidden) closeWordModal();
+    if (e.key === 'Escape' && $('filterModal') && !$('filterModal').hidden) {
+      $('filterModal').hidden = true;
+      restoreFilters(filterModalSnapshot);
+      syncQuickFilterUI();
+      renderChips();
+      renderPickerState();
+      renderLibrary();
+    }
+    if (e.key === 'Escape' && $('settingsModal') && !$('settingsModal').hidden) $('settingsModal').hidden = true;
   });
   $('wordForm').addEventListener('submit', handleWordForm);
 
@@ -4217,6 +4230,41 @@ function bindEvents() {
   $('clearUserBtn').addEventListener('click', clearUserWords);
 
   if ($('pasteFromPanelBtn')) $('pasteFromPanelBtn').addEventListener('click', openPasteModal);
+
+  /* 分类筛选弹窗：打开时存快照，取消还原，应用保留 */
+  if ($('filterOpenBtn')) {
+    $('filterOpenBtn').addEventListener('click', () => {
+      filterModalSnapshot = snapshotFilters();
+      $('filterModal').hidden = false;
+    });
+    const closeFilterModal = (apply) => {
+      $('filterModal').hidden = true;
+      if (apply) {
+        renderChips();
+        renderPickerState();
+        renderLibrary();
+      } else {
+        restoreFilters(filterModalSnapshot);
+        syncQuickFilterUI();
+        renderChips();
+        renderPickerState();
+        renderLibrary();
+      }
+    };
+    $('filterModalApply').addEventListener('click', () => closeFilterModal(true));
+    $('filterModalCancel').addEventListener('click', () => closeFilterModal(false));
+    $('closeFilterModal').addEventListener('click', () => closeFilterModal(false));
+    $('filterModal').addEventListener('click', (e) => { if (e.target === $('filterModal')) closeFilterModal(false); });
+  }
+
+  /* 练习设置弹窗：设置本来就是即时生效，弹窗只当容器 */
+  if ($('settingsOpenBtn')) {
+    $('settingsOpenBtn').addEventListener('click', () => { $('settingsModal').hidden = false; });
+    const closeSettingsModal = () => { $('settingsModal').hidden = true; };
+    $('settingsModalDone').addEventListener('click', closeSettingsModal);
+    $('closeSettingsModal').addEventListener('click', closeSettingsModal);
+    $('settingsModal').addEventListener('click', (e) => { if (e.target === $('settingsModal')) closeSettingsModal(); });
+  }
   if ($('copyBriefBtn')) {
     $('copyBriefBtn').addEventListener('click', () => {
       const box = $('aiBrief');
