@@ -156,7 +156,6 @@
           </div>
         </details>
         <div class="paste-entry">
-          <button class="btn tiny ghost" id="pasteEntryBtn" type="button">粘贴词表 →</button>
           <button class="btn tiny" id="pasteResumeBtn" type="button" hidden>继续练上次粘贴的词</button>
         </div>
           </div>
@@ -321,6 +320,25 @@
         <details class="import-panel" id="importPanel">
           <summary>导入我的词表 <span class="tag">CSV / TXT / JSON</span></summary>
           <div class="import-body">
+            <div class="ai-brief">
+              <div class="ai-brief-head">
+                <b>用 AI 生成词表</b>
+                <button class="btn tiny" id="copyBriefBtn" type="button">复制提示词</button>
+              </div>
+              <textarea id="aiBrief" rows="7" readonly spellcheck="false">请把下面这组单词整理成可直接导入的 CSV 词表，只输出 CSV 本身，不要 Markdown 代码块、不要解释。
+
+表头：word,meaning,pos,prefixes,suffixes
+规则：
+1. word：小写英文单词，必填
+2. meaning：中文释义，必填；多个义项用中文分号「；」分隔
+3. pos：词性，用 n / v / adj / adv / prep 等，多个用英文逗号分隔
+4. prefixes / suffixes：词缀，写成 un- / -able 这种带横线的形式；没有就留空
+5. 每行一个词，重复的只保留一条
+
+单词：
+（把你的单词贴在这里）</textarea>
+              <p class="hint-line">把这段提示词连同单词发给 AI，让它生成 CSV 文件，再拖到下面导入。</p>
+            </div>
             <label class="dropzone" id="dropZone" for="fileInput">
               <div class="dz-icon" aria-hidden="true">⇩</div>
               <div class="dz-title">把 CSV / TXT / JSON 文件拖到这里</div>
@@ -329,11 +347,14 @@
             </label>
             <p class="hint-line">有标准音频的词直接用离线发音，其余用系统朗读。</p>
             <div class="import-actions">
+              <button class="btn tiny ghost" id="pasteFromPanelBtn" type="button">粘贴词表临时练习</button>
               <button class="btn tiny" id="csvTemplateBtn" type="button">下载 CSV 模板</button>
               <button class="btn tiny" id="jsonExampleBtn" type="button">下载 JSON 示例</button>
               <button class="btn tiny" id="loadSampleBtn" type="button">载入示例词表试试</button>
               <button class="btn tiny ghost" id="clearUserBtn" type="button">清空我的词库</button>
             </div>
+            <details class="format-help">
+              <summary>手写 CSV / JSON 的格式说明</summary>
             <div class="help-grid">
               <div class="help-box">
                 <b>CSV 怎么写</b>
@@ -352,6 +373,7 @@
                 </div>
               </div>
             </div>
+            </details>
             <div id="importResult"></div>
             <div class="import-errors" id="importErrors"></div>
           </div>

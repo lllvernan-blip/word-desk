@@ -3630,8 +3630,7 @@ function syncPasteEntry() {
   const n = pasteList && pasteList.words ? pasteList.words.length : 0;
   resume.hidden = !n;
   resume.textContent = `继续练上次粘贴的 ${n} 词`;
-  const entry = $('pasteEntryBtn');
-  if (entry) entry.textContent = n ? '换一批词表' : '粘贴词表 →';
+
 }
 
 function parseTXTWords(text) {
@@ -4217,7 +4216,24 @@ function bindEvents() {
   $('loadSampleBtn').addEventListener('click', loadSampleLibrary);
   $('clearUserBtn').addEventListener('click', clearUserWords);
 
-  $('pasteEntryBtn').addEventListener('click', openPasteModal);
+  if ($('pasteFromPanelBtn')) $('pasteFromPanelBtn').addEventListener('click', openPasteModal);
+  if ($('copyBriefBtn')) {
+    $('copyBriefBtn').addEventListener('click', () => {
+      const box = $('aiBrief');
+      if (!box) return;
+      const text = box.value;
+      const done = () => toast('提示词已复制');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {
+          box.select();
+          toast('复制失败，已选中提示词，按 Command+C');
+        });
+      } else {
+        box.select();
+        toast('已选中提示词，按 Command+C 复制');
+      }
+    });
+  }
   $('pasteResumeBtn').addEventListener('click', () => startSession('list', settings.count));
   $('pasteInput').addEventListener('input', onPasteInput);
   $('pasteStart').addEventListener('click', startPasteSession);

@@ -2297,3 +2297,41 @@ input:hover, select:hover { border-color: color-mix(in srgb, var(--line-strong) 
 html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink-2) 55%, transparent); }
 ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink-2) 48%, transparent); }
 }
+
+/* 导入面板顶部的 AI 提示词：可复制，不抢拖拽区的主位 */
+.ai-brief {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--sheet-2);
+}
+.ai-brief-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.ai-brief textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--sheet);
+  color: var(--ink-2);
+  font: 12px/1.7 var(--font-mono);
+  resize: vertical;
+}
+.ai-brief .hint-line { margin: 8px 0 0; }
+
+.format-help { margin-top: 14px; }
+.format-help summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.format-help[open] summary { color: var(--ink-2); }
