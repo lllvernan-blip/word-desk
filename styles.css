@@ -627,6 +627,27 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 
 .word-display.small { font-size: clamp(1.8rem, 5vw, 2.4rem); }
 
+/* 发音按钮：贴着词头的小胶囊，不抢视觉重心 */
+.word-tools { margin: 4px 0 2px; }
+.speak-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.speak-btn:hover { color: var(--good); border-color: var(--good-line); background: var(--good-soft); }
+.speak-btn:active { transform: translateY(1px); }
+.speak-btn svg { display: block; }
+
 /* 词缀语义色（全站一致） */
 .seg-pre {
   color: var(--pre);
