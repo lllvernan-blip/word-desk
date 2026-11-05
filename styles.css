@@ -114,6 +114,8 @@ html {
   -webkit-text-size-adjust: 100%;
   background: var(--paper);
   scrollbar-gutter: stable both-edges;
+  /* 兜底：任何元素意外超宽都不让整页横向滑动（iOS 上放大后尤其明显） */
+  overflow-x: clip;
 }
 
 body {
@@ -131,7 +133,8 @@ body {
 [hidden] { display: none !important; }
 
 h1, h2, h3, p { margin: 0; }
-button { font: inherit; color: inherit; }
+button { font: inherit; color: inherit; touch-action: manipulation; }
+.tab-item, .chip, .speak-btn { touch-action: manipulation; }
 b { font-weight: 650; }
 
 ::selection { background: var(--brand-soft); }
@@ -236,7 +239,8 @@ b { font-weight: 650; }
   background: var(--brand);
 }
 
-.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+#installBtn { white-space: nowrap; flex: none; }
 
 .status-chip {
   display: inline-flex;
@@ -1932,21 +1936,6 @@ body.is-session .view-practice { max-width: 780px; }
   color: var(--muted);
 }
 
-.nav-utility {
-  padding: 6px 4px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 12.5px;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-  text-decoration-color: transparent;
-  white-space: nowrap;
-}
-
-.nav-utility:hover { color: var(--ink); text-decoration-color: var(--line-strong); }
-.nav-utility.active { color: var(--ink); text-decoration-color: var(--brand); }
 
 @media (max-width: 920px) {
   .picker-sheet { padding: 24px 20px 18px; }
@@ -2263,4 +2252,17 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
 /* 发音按钮在触屏上抬到 36px 命中区 */
 @media (max-width: 640px) {
   .speak-btn { min-height: 36px; padding: 5px 12px 5px 10px; }
+}
+
+/* ---------- 移动端输入框字号收口（放最后，覆盖各组件的 13/14px 规则） ---------- */
+@media (max-width: 920px) {
+  input:not(.answer-input), select, textarea, .paste-field textarea { font-size: 16px; }
+}
+
+/* ---------- 桌面端布局：导航居中 + 练习卡片吃满宽度 ---------- */
+@media (min-width: 1100px) {
+  .nav { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin-left: 0; }
+  .views { max-width: 1120px; }
+  body:not(.is-session) .view-practice { max-width: 960px; }
+  .picker-sheet { padding: 36px 40px 28px; }
 }
