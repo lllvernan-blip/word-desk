@@ -2893,7 +2893,8 @@ function openPickerForSession() {
   renderPractice();
   renderSession();
   showView('practice');
-  if (filtersActive() && $('filterModal')) {
+  // 点「修改」总是打开筛选弹窗：没有条件时也让用户能看到分类去加
+  if ($('filterModal')) {
     filterModalSnapshot = snapshotFilters();
     $('filterModal').hidden = false;
   }
