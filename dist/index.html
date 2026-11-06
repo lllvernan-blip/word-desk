@@ -48,6 +48,18 @@
     </div>
   </header>
 
+  <div class="storage-notice" id="storageNotice" hidden role="status" aria-live="polite"></div>
+
+  <div class="boot-fallback" id="bootFallback" hidden>
+    <div class="boot-fallback-box">
+      <b>页面没有加载完整</b>
+      <p>第一次使用需要联网加载一次词库和程序，之后可以离线使用。请检查网络后重试。</p>
+      <div class="empty-actions">
+        <button class="btn primary" type="button" onclick="location.reload()">重试</button>
+      </div>
+    </div>
+  </div>
+
   <main class="views">
     <!-- ================= 练词：选词 → 中英互译 ================= -->
     <section class="view view-practice" data-view="practice">
@@ -97,7 +109,7 @@
         </div>
 
         <div class="picker-secondary">
-        <details class="root-drill" id="rootDrill" hidden>
+        <details class="root-drill" id="rootDrill">
           <summary>
             <span class="rd-title">词根同族词</span>
             <span class="rd-meta" id="rootDrillMeta"></span>
@@ -240,7 +252,7 @@
               <div class="dz-sub">或点击选择文件。TXT 支持「单词,释义」或纯单词列表；纯词表只读取内置释义，不写入你的自建词库。</div>
               <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.json,text/csv,text/plain,application/json" hidden />
             </label>
-            <p class="hint-line">有标准音频的词直接用离线发音，其余用系统朗读。</p>
+            <p class="hint-line">有离线音频的词直接播放标准发音，没有音频的词用文字练习（不发声）。</p>
             <div class="import-actions">
               <button class="btn tiny ghost" id="pasteFromPanelBtn" type="button">粘贴词表临时练习</button>
               <button class="btn tiny" id="csvTemplateBtn" type="button">下载 CSV 模板</button>
@@ -309,9 +321,13 @@
         <div class="meta-line">
           <span id="nextDuePreview">还没有复习计划</span>
           <span class="spacer"></span>
-          <button class="btn tiny ghost" id="exportBtn" type="button">导出进度</button>
+          <button class="btn tiny ghost" id="exportBtn" type="button">导出本地备份</button>
+          <button class="btn tiny ghost" id="importBackupBtn" type="button">从备份恢复</button>
+          <input id="backupInput" type="file" accept=".json,application/json" hidden />
           <button class="btn tiny ghost" id="analyticsBtn" type="button">上报设置</button>
         </div>
+        <div class="import-errors" id="backupMsg" role="status" aria-live="polite"></div>
+        <p class="hint-line">备份是一个本地 JSON 文件：含自建词库、复习记录、错题、屏蔽词和设置；不上传，请自行保存。</p>
 
         <div class="analytics-panel" id="analyticsPanel" hidden>
           <div class="help-box">
@@ -474,11 +490,69 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="backupModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="backupModalTitle">
+    <div class="modal-head">
+      <h3 id="backupModalTitle">从备份恢复</h3>
+      <button class="modal-close" id="closeBackupModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="modal-note" id="backupPreview"></div>
+    <div class="form-actions">
+      <button class="btn ghost" id="backupCancel" type="button">取消</button>
+      <button class="btn primary" id="backupConfirm" type="button">合并恢复并重载</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="onboardingModal" hidden>
+  <div class="modal onboard-modal" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
+    <div class="modal-head">
+      <h3 id="onboardTitle">第一次用？三步就能开始</h3>
+    </div>
+    <div class="onboard-body">
+      <p class="onboard-lead">这不是词典，而是「选词 → 拆解 / 猜义 → 验证 → 拼写」的练习。词来自本机词库，不上传。</p>
+      <ol class="onboard-steps">
+        <li><b>选词</b>：按前缀 / 后缀 / 词根筛选，或直接用全库；上方会显示命中多少词。</li>
+        <li><b>练习</b>：每轮按四阶段走，先看词缀，再猜义，验证后拼写。</li>
+        <li><b>复习</b>：练过的词按记忆曲线回来复习；进度页可导出本地备份。</li>
+      </ol>
+      <p class="hint-line">数据只存这台设备；清除站点数据会丢失，重要进度请导出备份。</p>
+    </div>
+    <div class="form-actions">
+      <button class="btn ghost" id="onboardSkip" type="button">跳过</button>
+      <button class="btn primary" id="onboardStart" type="button">用 10 个新词试一轮</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="privacyModal" hidden>
+  <div class="modal privacy-modal" role="dialog" aria-modal="true" aria-labelledby="privacyTitle">
+    <div class="modal-head">
+      <h3 id="privacyTitle">数据与隐私</h3>
+      <button class="modal-close" id="closePrivacyModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="privacy-body">
+      <p><b>存什么：</b>复习进度（SRS）、错题本、每日统计、自建词、屏蔽词、设置，以及本机埋点事件。</p>
+      <p><b>存哪里：</b>只在这台设备的浏览器里（IndexedDB / localStorage）。没启用 IndexedDB 时会临时存 localStorage。</p>
+      <p><b>是否上传：</b>默认不上传。只有你在「上报设置」里填写端点并打开开关，事件才会 POST 到该地址。</p>
+      <p><b>怎么删：</b>下方「清除本机全部数据」，或在浏览器设置里清除本站点数据；清除后进度不可恢复，内置词库仍在。</p>
+      <p><b>备份：</b>进度页「导出本地备份」生成一个 JSON 文件，换设备时用「从备份恢复」。</p>
+      <p><b>埋点：</b>只记录打开、开局、导入等关键事件，最多保留 <span id="privacyMaxEvents">1200</span> 条；匿名，无账号或设备标识。</p>
+      <p class="hint-line" id="privacyStorage">离线缓存版本：读取中…</p>
+    </div>
+    <div class="form-actions">
+      <button class="btn ghost" id="clearDataBtn" type="button">清除本机全部数据</button>
+      <button class="btn primary" id="privacyDone" type="button">知道了</button>
+    </div>
+  </div>
+</div>
+
 
   <footer class="footer">
-    <span>数据保存在当前浏览器</span>
+    <span>数据只存这台设备，清除站点数据会丢失；进度页可导出本地备份。</span>
     <span id="offlineNote"></span>
-    <span class="app-version">V0.09</span>
+    <button class="footer-link" id="privacyOpenBtn" type="button">数据与隐私</button>
+    <span class="app-version" id="appVersion"></span>
   </footer>
 </div>
 
@@ -543,9 +617,9 @@ The committee discussed the proposal yesterday." spellcheck="false"></textarea>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="./words-core.js"></script>
-<script src="./words.js"></script>
-<script src="./roots-data.js"></script>
-<script src="./app.js"></script>
+<script src="./words-core.js" onerror="document.getElementById('bootFallback').hidden=false"></script>
+<script src="./words.js" onerror="document.getElementById('bootFallback').hidden=false"></script>
+<script src="./roots-data.js" onerror="document.getElementById('bootFallback').hidden=false"></script>
+<script src="./app.js" onerror="document.getElementById('bootFallback').hidden=false"></script>
 </body>
 </html>

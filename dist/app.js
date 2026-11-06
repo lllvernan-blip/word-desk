@@ -14,7 +14,7 @@ const CONFIG = {
 };
 
 /* 功能开关：听音拼写已恢复，但只对 audio/index.json 里真实存在的词开放；
-   没有离线音频的词一律走文字练习，绝不用系统朗读凑发音。
+   没有离线音频的词一律走文字练习，绝不用语音合成凑发音。
    跟读自评仍下架（依赖标准发音，暂不恢复）。 */
 const FEATURES = {
   listenDictation: true,
@@ -250,7 +250,7 @@ function speechSupported() {
     && typeof window.speechSynthesis.speak === 'function';
 }
 
-/* 系统朗读不可用时的一次性提示：同一类原因只弹一次，说明降级方式 */
+/* 发音不可用时的一次性提示：同一类原因只弹一次，说明降级方式 */
 const VOICE_HINTS = new Set();
 const VOICE_HINT_TEXT = {
   unsupported: '发音不可用：这台浏览器不支持语音朗读，也没有离线音频。已改为先看音标拼写，没有音标就看词形拼写。',
@@ -463,7 +463,7 @@ function loadAudioIndex() {
 /* 取某个词的音频，返回 blob URL；失败返回 null。
    顺序：内存 -> Cache Storage（离线也能播播过的词）-> Range 取分片 -> 存 Cache。 */
 function loadAudioUrl(key) {
-  if (AUDIO_BROKEN.has(key)) return Promise.resolve(null);
+  if (AUDIO_BROKEN.has(audioBrokenKey(key))) return Promise.resolve(null);
   if (AUDIO.urls.has(key)) return Promise.resolve(AUDIO.urls.get(key));
   if (AUDIO.loading.has(key)) return AUDIO.loading.get(key);
   const task = (async () => {
@@ -1233,8 +1233,8 @@ function computeStreak() {
 function todaySnapshot() {
   const now = Date.now();
   const words = library();
-  const dueList = Object.values(srsMap).filter((r) => r.due <= now && r.state !== 'new');
-  const learnedToday = Object.values(srsMap).filter((r) => r.firstReview && !r.fromDrill && dateKey(new Date(r.firstReview)) === dateKey()).length;
+  const dueList = Object.values(srsMap).filter((r) => r.due <= now && r.state !== 'new' && !isHiddenWord(r.word));
+  const learnedToday = Object.values(srsMap).filter((r) => r.firstReview && !r.fromDrill && !isHiddenWord(r.word) && dateKey(new Date(r.firstReview)) === dateKey()).length;
   const newLeft = Math.max(0, settings.dailyNew - learnedToday);
   const unlearned = words.filter((w) => !srsMap[w.lower]).length;
   const d = daily[dateKey()] || { reviews: 0, answers: 0, correct: 0 };
@@ -1257,6 +1257,11 @@ function libraryScopeCount() {
   return { total, count: picked };
 }
 
+/* 第一次使用：没有任何复习记录，也没有自建词 */
+function isFirstRun() {
+  return !userWords.length && Object.keys(srsMap).length === 0;
+}
+
 /* 当前点「开始练习」会取到哪一批词：筛选结果 / 今日复习计划 / 全库 */
 function pickerPlan() {
   if (filtersActive()) {
@@ -1270,28 +1275,31 @@ function pickerPlan() {
   }
   if (pickerScope === 'library') {
     const { total, count } = libraryScopeCount();
+    const first = isFirstRun();
     return {
       kind: 'library',
       count,
-      button: `从全库抽 ${count} 词开始练习`,
-      note: ''
+      button: first ? `用 ${count} 个新词试一轮` : `从全库抽 ${count} 词开始练习`,
+      note: first ? '第一次使用：先练一轮熟悉流程' : ''
     };
   }
   const plan = buildQueue('review', 'all', false);
   if (plan.length) {
+    const first = isFirstRun();
     return {
       kind: 'review',
       count: plan.length,
-      button: `用今日复习计划（${plan.length} 词）开始练习`,
-      note: ''
+      button: first ? `用 ${plan.length} 个新词试一轮` : `用今日复习计划（${plan.length} 词）开始练习`,
+      note: first ? '第一次使用：先练一轮熟悉流程' : ''
     };
   }
   const { total, count } = libraryScopeCount();
+  const first = isFirstRun();
   return {
     kind: 'library',
     count,
-    button: `今日无待复习词 · 改用全库 ${count} 词`,
-    note: '今日无待复习词'
+    button: first ? `用 ${count} 个新词试一轮` : `今日无待复习词 · 改用全库 ${count} 词`,
+    note: first ? '第一次使用：先练一轮熟悉流程' : '今日无待复习词'
   };
 }
 
@@ -1302,7 +1310,8 @@ function renderPractice() {
     ['新词', t.newLeft],
     ['今日已练', t.done],
     ['连续', `${t.streak} 天`]
-  ].map(([label, value]) => `<span class="plan-stat"><b>${esc(value)}</b>${esc(label)}</span>`).join('');
+  ].map(([label, value]) => `<span class="plan-stat"><b>${esc(value)}</b>${esc(label)}</span>`).join('')
+    + (isFirstRun() ? '<span class="plan-first-hint">今天还没有复习记录，先试一轮。</span>' : '');
   renderChips();
   renderPickerState();
   renderRootDrill();
@@ -1423,7 +1432,7 @@ function renderPickerState() {
   }
 
   const btn = $('startPickerBtn');
-  btn.textContent = plan.count === 0 || (plan.kind === 'library' && plan.note)
+  btn.textContent = plan.count === 0 || ((plan.kind === 'library' || plan.kind === 'review') && plan.note)
     ? plan.button
     : plan.kind === 'library' ? '从全库开始练习' : '开始练习';
   btn.disabled = plan.count === 0;
@@ -1440,7 +1449,7 @@ function renderPickerState() {
   if (quickCount) $('moreFilters').open = true;
 
   const hint = $('pickerHint');
-  hint.textContent = !plan.count ? '' : plan.count < 4 ? '命中词少于 4 个，选项会相应减少' : '';
+  hint.textContent = !plan.count ? '' : plan.count < 4 ? '命中词少于 4 个，本轮就练这几个词；选项凑不齐 4 个时会自动改成输入作答' : '';
 
   const empty = $('pickerEmpty');
   if (!plan.count) {
@@ -1461,6 +1470,8 @@ function renderHeader() {
   } else {
     el.textContent = `内置词库 v${BUILTIN_VERSION}`;
   }
+  const ver = $('appVersion');
+  if (ver) ver.textContent = `V${CONFIG.version}`;
   $('netDot').classList.toggle('off', !navigator.onLine);
   $('netDot').title = navigator.onLine ? '在线' : '离线';
 }
@@ -1824,29 +1835,45 @@ function renderStats() {
   $('reportState').textContent = settings.report && settings.endpoint ? '已开启' : '已关闭';
 }
 
-/* 导出进度 JSON：把反馈回路交给作者——二哥把文件发回来即可看到真实使用数据 */
+/* ---------- 本地备份 / 恢复 ----------
+   导出只在本地生成 JSON：自建词库、SRS 复习记录、错题本、屏蔽表、设置、每日统计。
+   导入采用合并策略（同词取较新记录），不删除现有更新的数据；v0.09 旧「导出进度」文件也能读。 */
+const BACKUP_SCHEMA = 1;
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
 async function buildProgressPayload() {
   const srsRecords = await DB.all('srs');
-  const now = Date.now();
   return {
     app: 'word-desk',
+    kind: 'backup',
+    schemaVersion: BACKUP_SCHEMA,
+    appVersion: CONFIG.version,
     exportedAt: new Date().toISOString(),
-    stats,
-    daily,
-    settings: {
-      direction: settings.direction,
-      answerType: settings.answerType,
-      dailyNew: settings.dailyNew,
-      libMode: settings.libMode
+    data: {
+      userWords: userWords.map((w) => ({
+        word: w.word, meanings: w.meanings, pos: w.pos,
+        prefixes: w.prefixes, suffixes: w.suffixes, phonetic: w.phonetic,
+        freqRank: w.freqRank, origin: w.origin, source: w.source,
+        createdAt: w.createdAt, updatedAt: w.updatedAt
+      })),
+      srs: srsRecords,
+      wrongBook,
+      blocked: blockedOrder.slice(),
+      settings: Object.assign({}, settings),
+      daily,
+      stats,
+      pasteList
     },
     summary: {
+      userWords: userWords.length,
       srsRecords: srsRecords.length,
-      learning: srsRecords.filter((r) => (r.stability || 0) > 0).length,
-      due: srsRecords.filter((r) => r.due <= now).length,
-      wrongWords: wrongBook.length
-    },
-    wrongBook,
-    srs: srsRecords
+      wrongWords: wrongBook.length,
+      blocked: blockedOrder.length,
+      dailyDays: Object.keys(daily).length
+    }
   };
 }
 
@@ -1857,15 +1884,274 @@ async function exportProgress() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `word-desk-progress-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `word-desk-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('已导出进度 JSON，发给作者就能看你的使用数据');
+    const s = payload.summary;
+    toast(`已导出本地备份：自建词 ${s.userWords} 条 · 复习记录 ${s.srsRecords} 条 · 屏蔽 ${s.blocked} 条。文件请自行保存。`);
+    track('backup_export', { userWords: s.userWords, srs: s.srsRecords });
   } catch (e) {
     toast('导出失败：' + (e && e.message ? e.message : e));
   }
+}
+
+function sanitizeBackupSettings(raw) {
+  const merged = Object.assign({}, settings, isPlainObject(raw) ? raw : {});
+  if (!['en2zh', 'zh2en', 'listen'].includes(merged.direction)) merged.direction = 'en2zh';
+  if (merged.direction === 'listen' && !FEATURES.listenDictation) merged.direction = 'en2zh';
+  if (!['choice', 'input'].includes(merged.answerType)) merged.answerType = 'choice';
+  if (!['10', '20', 'all'].includes(String(merged.count))) merged.count = '10';
+  merged.count = String(merged.count);
+  merged.dailyNew = Math.min(DAILY_NEW_MAX, Math.max(0, Number(merged.dailyNew) || 0));
+  merged.listenRate = Number(merged.listenRate) === 0.8 ? 0.8 : 1;
+  merged.followRead = false;
+  merged.shuffle = merged.shuffle !== false;
+  merged.report = !!merged.report;
+  merged.endpoint = typeof merged.endpoint === 'string' ? merged.endpoint : '';
+  merged.libMode = ['all', 'builtin', 'user'].includes(merged.libMode) ? merged.libMode : 'all';
+  return merged;
+}
+
+/* 旧备份缺字段时补齐 FSRS 默认值，坏记录直接丢弃，不让一条脏数据卡住整次恢复 */
+function normalizeSrsRecord(raw) {
+  if (!isPlainObject(raw)) return null;
+  const key = normalizeEnglish(raw.word);
+  if (!key) return null;
+  const base = FSRS.empty(key);
+  const rec = Object.assign({}, base, raw, { word: key });
+  rec.history = Array.isArray(raw.history) ? raw.history : [];
+  ['stability', 'difficulty', 'due', 'interval', 'reps', 'lapses', 'lastReview', 'firstReview', 'step'].forEach((k) => {
+    if (!Number.isFinite(Number(rec[k]))) rec[k] = base[k];
+  });
+  if (!rec.state) rec.state = base.state;
+  return rec;
+}
+
+function normalizeWrongEntry(raw) {
+  if (!isPlainObject(raw)) return null;
+  const w = makeWord(raw, 'user');
+  if (!w) return null;
+  return {
+    word: w.word, meanings: w.meanings, pos: w.pos,
+    prefixes: w.prefixes, suffixes: w.suffixes,
+    count: Math.max(1, Number(raw.count) || 1),
+    createdAt: Number(raw.createdAt) || Date.now(),
+    lastAt: Number(raw.lastAt) || Number(raw.createdAt) || Date.now()
+  };
+}
+
+function parseBackup(raw) {
+  if (!isPlainObject(raw)) throw new Error('文件内容不是有效的 JSON 对象');
+  if (raw.app !== 'word-desk') throw new Error('这不是单词练习台的备份文件（缺少 app: "word-desk" 标记）');
+  const schema = raw.schemaVersion == null ? 0 : Number(raw.schemaVersion);
+  if (!Number.isFinite(schema) || schema < 0) throw new Error('备份的 schemaVersion 字段无效');
+  if (schema > BACKUP_SCHEMA) throw new Error(`备份版本 ${schema} 比当前应用（${BACKUP_SCHEMA}）新，请先更新应用再恢复`);
+  // v0.09 的「导出进度」没有 data 层，字段直接挂在顶层
+  const d = isPlainObject(raw.data) ? raw.data : raw;
+  const userWordsIn = (Array.isArray(d.userWords) ? d.userWords : [])
+    .map((w) => makeWord(w, 'user')).filter(Boolean);
+  const srsIn = (Array.isArray(d.srs) ? d.srs : []).map(normalizeSrsRecord).filter(Boolean);
+  const wrongIn = (Array.isArray(d.wrongBook) ? d.wrongBook : []).map(normalizeWrongEntry).filter(Boolean);
+  const blockedIn = (Array.isArray(d.blocked) ? d.blocked : [])
+    .map((w) => normalizeEnglish(typeof w === 'string' ? w : (w && w.word))).filter(Boolean);
+  const pasteIn = isPlainObject(d.pasteList) && Array.isArray(d.pasteList.words) && d.pasteList.words.length
+    ? {
+        words: d.pasteList.words.map((x) => normalizeEnglish(x)).filter(Boolean),
+        createdAt: Number(d.pasteList.createdAt) || Date.now()
+      }
+    : null;
+  return {
+    schema,
+    appVersion: String(raw.appVersion || ''),
+    exportedAt: String(raw.exportedAt || ''),
+    userWords: userWordsIn,
+    srs: srsIn,
+    wrongBook: wrongIn,
+    blocked: blockedIn,
+    settings: sanitizeBackupSettings(d.settings),
+    daily: isPlainObject(d.daily) ? d.daily : {},
+    stats: isPlainObject(d.stats) ? d.stats : {},
+    pasteList: pasteIn
+  };
+}
+
+function backupPreviewHTML(b) {
+  const when = b.exportedAt ? b.exportedAt.replace('T', ' ').slice(0, 16) : '未知时间';
+  const ver = b.appVersion ? ` · 应用版本 ${esc(b.appVersion)}` : '';
+  return `<p>备份导出时间：<b>${esc(when)}</b>${ver}</p>
+    <p>将合并恢复：<b>${b.userWords.length}</b> 个自建词条 · <b>${b.srs.length}</b> 条复习记录 · <b>${b.wrongBook.length}</b> 个错题 · <b>${b.blocked.length}</b> 个屏蔽词。</p>
+    <p>同词取较新的记录，不删除本机更新的数据；恢复完成后页面会自动重载。</p>`;
+}
+
+let pendingBackup = null;
+
+async function handleBackupFile(file) {
+  if (!file) return;
+  const msg = $('backupMsg');
+  if (msg) { msg.className = 'import-errors'; msg.textContent = ''; }
+  try {
+    if (file.size > 20 * 1024 * 1024) throw new Error('文件超过 20 MB，可能不是备份文件');
+    const text = await file.text();
+    let raw;
+    try { raw = JSON.parse(text); } catch (e) { throw new Error('JSON 解析失败：文件可能已损坏或被截断'); }
+    pendingBackup = parseBackup(raw);
+    $('backupPreview').innerHTML = backupPreviewHTML(pendingBackup);
+    $('backupModal').hidden = false;
+  } catch (e) {
+    pendingBackup = null;
+    const text = '恢复失败：' + (e && e.message ? e.message : e) + '。现有数据没有改动。';
+    if (msg) { msg.textContent = text; }
+    toast(text);
+    track('backup_import_fail', { reason: String(e && e.message || e).slice(0, 120) });
+  } finally {
+    const input = $('backupInput');
+    if (input) input.value = '';
+  }
+}
+
+/* 恢复前快照：失败时用它把内存态还原到恢复前 */
+function snapshotLocalState() {
+  return {
+    settings: Object.assign({}, settings),
+    blockedOrder: blockedOrder.slice(),
+    userWords: userWords.slice(),
+    srsMap: Object.assign({}, srsMap),
+    wrongBook: wrongBook.slice(),
+    daily: JSON.parse(JSON.stringify(daily)),
+    stats: Object.assign({}, stats),
+    pasteList: pasteList ? { words: pasteList.words.slice(), createdAt: pasteList.createdAt } : null
+  };
+}
+
+function restoreLocalState(snap) {
+  Object.keys(settings).forEach((k) => delete settings[k]);
+  Object.assign(settings, snap.settings);
+  blockedOrder = snap.blockedOrder;
+  blockedWords = new Set(blockedOrder);
+  userWords = snap.userWords;
+  srsMap = snap.srsMap;
+  wrongBook = snap.wrongBook;
+  Object.keys(daily).forEach((k) => delete daily[k]);
+  Object.assign(daily, snap.daily);
+  Object.keys(stats).forEach((k) => delete stats[k]);
+  Object.assign(stats, snap.stats);
+  pasteList = snap.pasteList;
+}
+
+/* 撤销已落盘的写入：kv 写回快照值；记录按「原来有则写回、原来没有则删除」 */
+async function rollbackBackupWrites(ops) {
+  for (const op of ops.slice().reverse()) {
+    try {
+      if (op.store === 'kv') {
+        if (op.prev == null) await DB.del('kv', op.key);
+        else await DB.put('kv', { key: op.key, value: op.prev });
+      } else {
+        for (const rec of (op.revert || []).slice().reverse()) {
+          if (rec.prev) await DB.put(op.store, rec.prev);
+          else await DB.del(op.store, rec.key);
+        }
+      }
+    } catch (e) { /* 回滚尽力而为，不掩盖原始错误 */ }
+  }
+}
+
+/* 备份恢复：先写数据、最后写设置；任何一步失败都按快照回滚 */
+async function applyBackup(b) {
+  // 丢弃尚未落盘的旧防抖写入，避免恢复后又被旧值覆盖
+  clearTimeout(kvTimer);
+  Object.keys(pendingKV).forEach((k) => delete pendingKV[k]);
+
+  const snap = snapshotLocalState();
+  const revert = [];
+  try {
+    const blockedSet = new Set(blockedOrder);
+    const nextBlocked = blockedOrder.slice();
+    b.blocked.forEach((k) => { if (!blockedSet.has(k)) { blockedSet.add(k); nextBlocked.push(k); } });
+    await DB.put('kv', { key: 'blocked', value: nextBlocked });
+    revert.push({ store: 'kv', key: 'blocked', prev: snap.blockedOrder });
+    blockedOrder = nextBlocked;
+    blockedWords = blockedSet;
+
+    // 自建词：同词取 updatedAt 较新的一条
+    const userOps = [];
+    b.userWords.forEach((w) => {
+      const idx = userWords.findIndex((x) => x.lower === w.lower);
+      if (idx >= 0 && (Number(userWords[idx].updatedAt) || 0) >= (Number(w.updatedAt) || 0)) return;
+      const prev = idx >= 0 ? userWords[idx] : null;
+      if (idx >= 0) userWords[idx] = w; else userWords.push(w);
+      userOps.push({ w, prev, key: w.lower });
+    });
+    for (const op of userOps) await DB.put('userWords', op.w);
+    if (userOps.length) revert.push({ store: 'userWords', revert: userOps });
+
+    // SRS：同词取 lastReview 较新的一条
+    const srsOps = [];
+    b.srs.forEach((r) => {
+      const existing = srsMap[r.word];
+      if (existing && (Number(existing.lastReview) || 0) >= (Number(r.lastReview) || 0)) return;
+      srsMap[r.word] = r;
+      srsOps.push({ w: r, prev: existing || null, key: r.word });
+    });
+    for (const op of srsOps) await DB.put('srs', op.w);
+    if (srsOps.length) revert.push({ store: 'srs', revert: srsOps });
+
+    // 错题本：次数无条件取最大；lastAt 只决定其余字段取哪边
+    b.wrongBook.forEach((x) => {
+      const key = normalizeEnglish(x.word);
+      const idx = wrongBook.findIndex((y) => normalizeEnglish(y.word) === key);
+      if (idx >= 0) {
+        const prev = wrongBook[idx];
+        const base = (Number(x.lastAt) || 0) > (Number(prev.lastAt) || 0)
+          ? Object.assign({}, prev, x)
+          : Object.assign({}, x, prev);
+        base.count = Math.max(Number(prev.count) || 1, Number(x.count) || 1);
+        base.lastAt = Math.max(Number(prev.lastAt) || 0, Number(x.lastAt) || 0);
+        wrongBook[idx] = base;
+      } else {
+        wrongBook.unshift(x);
+      }
+    });
+    await DB.put('kv', { key: 'wrong', value: wrongBook.slice() });
+    revert.push({ store: 'kv', key: 'wrong', prev: snap.wrongBook });
+
+    // 每日统计：按日期逐项取较大值，避免同一轮练习被重复计数
+    Object.keys(b.daily).forEach((day) => {
+      const inc = b.daily[day];
+      if (!isPlainObject(inc)) return;
+      if (!isPlainObject(daily[day])) { daily[day] = Object.assign({}, inc); return; }
+      Object.keys(inc).forEach((k) => {
+        if (typeof inc[k] === 'number') daily[day][k] = Math.max(Number(daily[day][k]) || 0, inc[k]);
+      });
+    });
+    Object.keys(b.stats).forEach((k) => {
+      if (typeof b.stats[k] === 'number') stats[k] = Math.max(Number(stats[k]) || 0, b.stats[k]);
+    });
+    await DB.put('kv', { key: 'daily', value: daily });
+    revert.push({ store: 'kv', key: 'daily', prev: snap.daily });
+    await DB.put('kv', { key: 'stats', value: stats });
+    revert.push({ store: 'kv', key: 'stats', prev: snap.stats });
+
+    if (b.pasteList) {
+      pasteList = b.pasteList;
+      await DB.put('kv', { key: 'pasteList', value: pasteList });
+      revert.push({ store: 'kv', key: 'pasteList', prev: snap.pasteList });
+    }
+
+    // 设置最后写：前面的数据都成功落盘后才覆盖每日上限/方向等
+    await DB.put('kv', { key: 'settings', value: b.settings });
+    revert.push({ store: 'kv', key: 'settings', prev: snap.settings });
+    Object.assign(settings, b.settings);
+  } catch (e) {
+    restoreLocalState(snap);
+    await rollbackBackupWrites(revert);
+    throw e;
+  }
+
+  track('backup_import_ok', { userWords: b.userWords.length, srs: b.srs.length });
+  toast('恢复完成，页面即将重载');
+  setTimeout(() => location.reload(), 300);
 }/* ---------- 简化版 FSRS 调度（自包含，无依赖） ----------
    目标记忆保持率 desiredRetention = 0.9，学习步骤 1 分钟 / 10 分钟，
    最大间隔 365 天。字段命名对齐 FSRS：stability / difficulty / state。 */
@@ -2263,6 +2549,7 @@ function breakdownHTML(card) {
       <div class="word-display">${wordDisplayHTML(w)}</div>
       ${wordMetaHTML(w)}
       ${affixRowsHTML(w)}
+      <p class="hint-line">这一步只帮你认识词缀，不评分；看完点下一步。</p>
       <div class="action-row">
         <button class="btn primary" type="button" data-action="next-stage">${low ? '看标准答案 →' : '开始猜义 →'}</button>
         <span class="spacer"></span>
@@ -2430,7 +2717,7 @@ function listenHTML(card) {
       </div>
       <p class="recall-hint">只听发音，把单词完整拼出来。这里不显示原词拼写。</p>
       ${fallback}
-      <input class="answer-input" id="recallInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入你听到的单词" />
+      <input class="answer-input" id="recallInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入你听到的单词" value="${esc(card.recallTyped || '')}" />
       <div class="action-row listen-actions">
         <button class="btn primary" type="button" data-action="submit-recall">提交拼写</button>
         <button class="btn ghost" type="button" data-action="give-up">想不起来，看答案</button>
@@ -2578,7 +2865,7 @@ function renderSession() {
 }
 
 /* ---------- 听音拼写：进入、播放、降级 ----------
-   只用离线音频：索引里查不到就降级为文字练习，绝不调用系统朗读。 */
+   只用离线音频：索引里查不到就降级为文字练习，绝不调用语音合成。 */
 function applyListenEntry(card) {
   if (!FEATURES.listenDictation) return;
   if (card.listenEntryDone) return;
@@ -2668,8 +2955,8 @@ function renderFinish() {
       <h3 class="summary-rate">正确率 ${rate}%</h3>
       <p class="hint-line">${s.answered} 题 · ${s.correct} 题正确 · 用时约 ${mins} 分钟 · 最长连对 ${s.bestStreak}</p>
       <div class="meaning-list summary-next">
-        <div class="meaning-item"><span class="idx">到期</span><span>${Math.min(DAILY_REVIEW_CAP, Object.values(srsMap).filter((r) => r.due <= Date.now()).length)} 个词</span></div>
-        <div class="meaning-item"><span class="idx">错题</span><span>${wrongBook.length} 个词在错题本</span></div>
+        <div class="meaning-item"><span class="idx">到期</span><span>${Math.min(DAILY_REVIEW_CAP, Object.values(srsMap).filter((r) => r.due <= Date.now() && !isHiddenWord(r.word)).length)} 个词</span></div>
+        <div class="meaning-item"><span class="idx">错题</span><span>${wrongBook.filter((x) => !isHiddenWord(x.word)).length} 个词在错题本</span></div>
       </div>
       <div class="action-row summary-actions">
         <button class="btn primary" type="button" data-action="restart">再来一轮</button>
@@ -3421,7 +3708,8 @@ function showImportErrors(errors) {
   if (!errors.length) { box.innerHTML = ''; return; }
   const shown = errors.slice(0, 8).map((e) => `<div class="import-error">${esc(e)}</div>`).join('');
   const more = errors.length > 8 ? `<div class="import-error">还有 ${errors.length - 8} 处问题，修正后重新上传即可。</div>` : '';
-  box.innerHTML = shown + more;
+  const retry = `<div class="empty-actions"><button class="btn tiny" type="button" data-retry-import>重新选择文件</button></div>`;
+  box.innerHTML = shown + more + retry;
 }
 
 function showImportOk(html) { $('importResult').innerHTML = `<div class="import-ok">${html}</div>`; }
@@ -3432,24 +3720,26 @@ async function audioCoverageLine(words) {
   const keys = new Set();
   (words || []).forEach((w) => {
     const k = audioKey(typeof w === 'string' ? w : (w && w.word));
-    if (k) keys.add(k);
+    if (k && !isHiddenWord(k)) keys.add(k);
   });
   if (!keys.size) return '';
   const idx = await loadAudioIndex();
   if (!idx || !idx.words) return '音频命中率暂时无法统计（音频索引没加载到）。';
   let hit = 0;
   keys.forEach((k) => { if (idx.words[k]) hit++; });
-  return `其中 ${hit} 个词有标准音频，${keys.size - hit} 个词将使用系统朗读。`;
+  return `其中 ${hit} 个词有标准音频，其余 ${keys.size - hit} 个词这次用文字练习（不发声）。`;
 }
 
 function mergeImported(list, format) {
   let added = 0;
   let replaced = 0;
   let invalid = 0;
+  let hidden = 0;
   const seen = new Set();
   list.forEach((raw) => {
     const w = makeWord(Object.assign({}, raw, { origin: 'user', source: format }), 'user');
     if (!w || !w.meanings.length) { invalid++; return; }
+    if (isHiddenWord(w)) { hidden++; return; }
     if (seen.has(w.lower)) { invalid++; return; }
     seen.add(w.lower);
     const idx = userWords.findIndex((x) => x.lower === w.lower);
@@ -3461,7 +3751,7 @@ function mergeImported(list, format) {
   invalidateLib();
   libLimit = Math.max(libLimit, CONFIG.pageSize);
   renderAll();
-  return { added, replaced, invalid };
+  return { added, replaced, invalid, hidden };
 }
 
 async function handleFile(file) {
@@ -3485,7 +3775,8 @@ async function handleFile(file) {
       if (r.words.length) {
         const merged = mergeImported(r.words, 'txt');
         const cover = await audioCoverageLine(r.words);
-        showImportOk(`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）。`
+        showImportOk(`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）`
+          + (merged.hidden ? `，跳过 ${merged.hidden} 条已屏蔽/已剔除的词` : '') + '。'
           + (cover ? ` ${cover}` : '')
           + (r.listWords.length ? ` 另有 ${r.listWords.length} 个纯单词已存为「粘贴批次」，<button type="button" class="btn tiny" data-start-list>用这批词开始 →</button>` : ''));
         track('import_success', { format: 'txt', added: merged.added, replaced: merged.replaced });
@@ -3517,6 +3808,7 @@ async function handleFile(file) {
     const cover = await audioCoverageLine(result.words);
     const parts = [`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）`];
     if (merged.invalid) parts.push(`跳过 ${merged.invalid} 条重复或无效`);
+    if (merged.hidden) parts.push(`跳过 ${merged.hidden} 条已屏蔽/已剔除的词`);
     if (result.errors.length) parts.push(`另有 ${result.errors.length} 条有问题已标红`);
     showImportOk(parts.join('，') + '。' + (cover ? ` ${cover}` : ''));
     track('import_success', { format: ext, added: merged.added, replaced: merged.replaced, errors: result.errors.length });
@@ -3946,9 +4238,34 @@ async function refreshRemoteContent() {
 
 /* ---------- PWA ---------- */
 let deferredPrompt = null;
+
+/* 新版本提示：不自动刷新，避免打断正在做的练习 */
+function showUpdateBar() {
+  if ($('updateBar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'updateBar';
+  bar.className = 'update-bar';
+  bar.innerHTML = '有新版本，<button type="button">点此刷新</button>';
+  bar.querySelector('button').addEventListener('click', () => location.reload());
+  document.body.appendChild(bar);
+}
+
 function setupPWA() {
   if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) {
-    navigator.serviceWorker.register('./sw.js').catch(() => { /* 离线缓存失败不影响使用 */ });
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // 已由 SW 控制时，进入页面检查一次更新
+      if (navigator.serviceWorker.controller) reg.update().catch(() => {});
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        if (!w) return;
+        w.addEventListener('statechange', () => {
+          if (w.state === 'installed' && navigator.serviceWorker.controller) showUpdateBar();
+        });
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) reg.update().catch(() => {});
+      });
+    }).catch(() => { /* 离线缓存失败不影响使用 */ });
     $('offlineNote').textContent = '离线可用';
   } else if (location.protocol === 'file:') {
     $('offlineNote').textContent = '本地文件模式：可正常使用，离线安装需通过 http 访问';
@@ -3969,6 +4286,115 @@ function setupPWA() {
   window.addEventListener('offline', renderHeader);
 }
 
+/* ---------- 首次使用引导 / 存储降级 / 数据与隐私 ---------- */
+const ONBOARD_KEY = 'wd-onboarding-v1';
+function onboardingSeen() {
+  try { return localStorage.getItem(ONBOARD_KEY) === '1'; } catch (e) { return true; }
+}
+/* 老用户判定：已有复习记录 / 练习事件 / 自建词，升级后不再弹引导 */
+function hasPracticeHistory() {
+  return Object.keys(srsMap).length > 0 || (Array.isArray(events) && events.length > 0) || userWords.length > 0;
+}
+function maybeShowOnboarding() {
+  if (onboardingSeen()) return;
+  if (hasPracticeHistory()) {
+    try { localStorage.setItem(ONBOARD_KEY, '1'); } catch (e) { /* 隐私模式下忽略 */ }
+    return;
+  }
+  const el = $('onboardingModal');
+  if (el) el.hidden = false;
+}
+function dismissOnboarding() {
+  try { localStorage.setItem(ONBOARD_KEY, '1'); } catch (e) { /* 隐私模式下忽略 */ }
+  const el = $('onboardingModal');
+  if (el) el.hidden = true;
+}
+
+function showStorageNotice() {
+  const el = $('storageNotice');
+  if (!el) return;
+  if (DB.mode.current === 'idb') { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = '本地数据库不可用，已临时改用浏览器存储；清理站点数据会丢失进度，建议到「进度」页导出备份。';
+}
+
+async function refreshPrivacyInfo() {
+  const el = $('privacyStorage');
+  if (!el) return;
+  const maxEl = $('privacyMaxEvents');
+  if (maxEl) maxEl.textContent = String(CONFIG.maxEvents);
+  let cacheText = '离线缓存未启用';
+  try {
+    if ('caches' in window) {
+      const keys = (await caches.keys()).filter((k) => k.startsWith('wtp-shell-'));
+      cacheText = keys.length ? `离线缓存 ${keys.sort().pop()}` : '离线缓存未启用';
+    }
+  } catch (e) { /* ignore */ }
+  el.textContent = `${cacheText} · 应用版本 V${CONFIG.version}`;
+}
+
+function openPrivacy() {
+  const el = $('privacyModal');
+  if (!el) return;
+  el.hidden = false;
+  refreshPrivacyInfo();
+}
+
+let clearArmTimer = null;
+function armClearData() {
+  const btn = $('clearDataBtn');
+  if (!btn) return;
+  if (btn.dataset.armed === '1') {
+    clearTimeout(clearArmTimer);
+    clearAllLocalData();
+    return;
+  }
+  btn.dataset.armed = '1';
+  btn.classList.add('is-danger');
+  btn.textContent = '再点一次确认清除';
+  clearArmTimer = setTimeout(() => {
+    btn.dataset.armed = '';
+    btn.classList.remove('is-danger');
+    btn.textContent = '清除本机全部数据';
+  }, 5000);
+}
+
+async function clearAllLocalData() {
+  const btn = $('clearDataBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '正在清除…'; }
+  try {
+    clearTimeout(kvTimer);
+    Object.keys(pendingKV).forEach((k) => delete pendingKV[k]);
+    for (const store of ['kv', 'userWords', 'srs', 'events']) {
+      try { await DB.clear(store); } catch (e) { /* 单个 store 失败不阻断其它清理 */ }
+    }
+    // localStorage：进度缓存、主题、引导标记、坏音频名单
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('wtp.') || k.startsWith('wd-'))) keys.push(k);
+      }
+      keys.forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* ignore */ }
+    AUDIO_BROKEN.clear();
+    AUDIO.urls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ } });
+    AUDIO.urls.clear();
+    AUDIO.loading.clear();
+    AUDIO.els.clear();
+    AUDIO.index = null;
+    // 只删音频包缓存，保留应用外壳（内置词库在 words.js 里，不受影响）
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k.startsWith(AUDIO_CACHE_PREFIX)).map((k) => caches.delete(k)));
+    }
+    location.reload();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.classList.remove('is-danger'); btn.dataset.armed = ''; btn.textContent = '清除本机全部数据'; }
+    toast('清除失败：' + (e && e.message ? e.message : e));
+  }
+}
+
 /* ---------- 事件绑定 ---------- */
 function bindEvents() {
   // 播放态兜底：离开页面、切后台、失焦、指针取消时都清掉绿色，
@@ -3982,6 +4408,17 @@ function bindEvents() {
 
   $('clearAudioCacheBtn').addEventListener('click', clearAudioCache);
   $('unblockBtn').addEventListener('click', undoBlockedFromSettings);
+
+  $('privacyOpenBtn').addEventListener('click', openPrivacy);
+  $('privacyDone').addEventListener('click', () => { $('privacyModal').hidden = true; });
+  $('closePrivacyModal').addEventListener('click', () => { $('privacyModal').hidden = true; });
+  $('privacyModal').addEventListener('click', (e) => { if (e.target === $('privacyModal')) $('privacyModal').hidden = true; });
+  $('clearDataBtn').addEventListener('click', armClearData);
+  $('onboardSkip').addEventListener('click', dismissOnboarding);
+  $('onboardStart').addEventListener('click', () => {
+    dismissOnboarding();
+    startFromPicker();
+  });
 
   $('startPickerBtn').addEventListener('click', startFromPicker);
   $('cancelEditBtn').addEventListener('click', cancelPickerEdit);
@@ -4197,11 +4634,17 @@ function bindEvents() {
     if (e.key === 'Escape' && !$('wordModal').hidden) closeWordModal();
     if (e.key === 'Escape' && $('filterModal') && !$('filterModal').hidden) {
       $('filterModal').hidden = true;
-      restoreFilters(filterModalSnapshot);
-      syncQuickFilterUI();
-      renderChips();
-      renderPickerState();
-      renderLibrary();
+      if (sessionEditing) {
+        // 中途改条件时按 Esc 关弹窗=放弃这次改词，回到原队列
+        cancelPickerEdit();
+        renderChips();
+      } else {
+        restoreFilters(filterModalSnapshot);
+        syncQuickFilterUI();
+        renderChips();
+        renderPickerState();
+        renderLibrary();
+      }
     }
     if (e.key === 'Escape' && $('settingsModal') && !$('settingsModal').hidden) $('settingsModal').hidden = true;
   });
@@ -4211,6 +4654,9 @@ function bindEvents() {
     const file = e.target.files && e.target.files[0];
     handleFile(file);
     e.target.value = '';
+  });
+  $('importErrors').addEventListener('click', (e) => {
+    if (e.target.closest('[data-retry-import]')) $('fileInput').click();
   });
   const dz = $('dropZone');
   ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
@@ -4294,6 +4740,33 @@ function bindEvents() {
 
   $('analyticsBtn').addEventListener('click', () => { $('analyticsPanel').hidden = !$('analyticsPanel').hidden; });
   $('exportBtn').addEventListener('click', () => exportProgress());
+  $('importBackupBtn').addEventListener('click', () => $('backupInput').click());
+  $('backupInput').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    handleBackupFile(file);
+  });
+  const closeBackupModal = () => { $('backupModal').hidden = true; pendingBackup = null; };
+  $('closeBackupModal').addEventListener('click', closeBackupModal);
+  $('backupCancel').addEventListener('click', closeBackupModal);
+  $('backupModal').addEventListener('click', (e) => { if (e.target === $('backupModal')) closeBackupModal(); });
+  $('backupConfirm').addEventListener('click', async () => {
+    if (!pendingBackup) return;
+    const b = pendingBackup;
+    pendingBackup = null;
+    $('backupModal').hidden = true;
+    $('backupConfirm').disabled = true;
+    try {
+      await applyBackup(b);
+    } catch (e) {
+      $('backupConfirm').disabled = false;
+      const msg = '恢复中断：' + (e && e.message ? e.message : e) + '。可重新导入同一个备份。';
+      $('backupMsg').textContent = msg;
+      toast(msg);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('backupModal') && !$('backupModal').hidden) closeBackupModal();
+  });
   $('endpointInput').addEventListener('change', (e) => {
     settings.endpoint = e.target.value.trim();
     saveSettings();
@@ -4479,6 +4952,7 @@ async function init() {
   initTheme();
   initScrollbarHint();
   await loadState();
+  showStorageNotice();
   await loadRootContent();
   // 敏感性清单决定练习库与干扰项安全池，必须在任何队列/选项卡生成之前加载
   await loadSensitiveContent();
@@ -4489,6 +4963,7 @@ async function init() {
   refreshBlockedUI();
   renderAll();
   showView('practice', { scroll: false });
+  maybeShowOnboarding();
   // 音频索引（约 89KB）后台加载：索引没回来时听音入口先按不可用展示，到达后刷新可用态
   loadAudioIndex()
     .then(() => { syncListenAvailability(); if (currentCard()) renderSession(); })
@@ -4546,12 +5021,37 @@ async function init() {
     unblockLast: undoBlockedWord,
     get blockedWords() { return Array.from(blockedWords); },
     buildProgressPayload,
+    renderAll,
+    todaySnapshot,
+    parseBackup,
+    applyBackup,
+    DB,
     get stats() { return stats; }
   };
 }
 
-init().catch((e) => {
-  document.body.insertAdjacentHTML('beforeend', `<div class="card init-error">初始化失败：${esc(e && e.message)}</div>`);
-});
+function showInitError(e) {
+  const msg = e && e.message ? e.message : String(e);
+  document.body.insertAdjacentHTML('beforeend', `<div class="card init-error-card">
+    <b>初始化失败（V${esc(CONFIG.version)}）</b>
+    <p>${esc(msg)}</p>
+    <div class="empty-actions">
+      <button class="btn tiny" type="button" id="initRetryBtn">重试</button>
+      <button class="btn tiny ghost" type="button" id="initCopyBtn">复制错误信息</button>
+    </div>
+  </div>`);
+  $('initRetryBtn').addEventListener('click', () => location.reload());
+  $('initCopyBtn').addEventListener('click', async () => {
+    const text = `单词练习台 V${CONFIG.version}\n${msg}\n${navigator.userAgent}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('错误信息已复制');
+    } catch (err) {
+      toast('复制失败，请手动记录：' + msg);
+    }
+  });
+}
+
+init().catch(showInitError);
 
 })();

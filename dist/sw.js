@@ -1,7 +1,7 @@
 /* 单词翻译练习台 · Service Worker
    缓存应用外壳与词库内容，支持离线打开。
    注意：file:// 下 Service Worker 不生效，请通过 http(s) 访问。 */
-const CACHE = 'wtp-shell-v47';
+const CACHE = 'wtp-shell-v50';
 const CORE = [
   './',
   './index.html',
