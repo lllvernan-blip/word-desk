@@ -43,6 +43,9 @@
         <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
         <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"></path></svg>
       </button>
+      <button class="theme-toggle" id="settingsGearBtn" type="button" aria-label="设置" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </button>
       <span class="status-chip" title="离线状态"><span class="status-dot" id="netDot"></span><span class="status-text" id="contentStatus">本地词库</span></span>
       <button class="btn tiny ghost" id="installBtn" type="button" hidden>安装到桌面</button>
     </div>
@@ -468,6 +471,10 @@
               <input type="number" id="dailyNewInput" min="0" max="15" step="1" inputmode="numeric" aria-label="每日新词上限" />
             </label>
             <label class="switch setup-switch"><input id="shuffleToggle" type="checkbox" checked /><span>打乱顺序</span></label>
+            <label class="switch setup-switch"><input id="includeSpellToggle" type="checkbox" checked /><span>练习含拼写</span></label>
+            <p class="hint" id="includeSpellHint">关闭后跳过拼写阶段；听音拼写依赖拼写，关闭时自动回落英译中</p>
+            <label class="switch setup-switch"><input id="showExamplesToggle" type="checkbox" /><span>显示情景例句</span></label>
+            <p class="hint" id="showExamplesHint">例句数据稍后接入，开启后有句才显示</p>
             <label class="switch setup-switch"><input id="hapticToggle" type="checkbox" checked /><span>答对答错时震动</span></label>
             <p class="hint" id="hapticHint">部分机型尤其 iPhone 网页可能无感</p>
             <label class="switch setup-switch" id="followReadItem"><input id="followReadToggle" type="checkbox" /><span>结果页跟读自评</span></label>
