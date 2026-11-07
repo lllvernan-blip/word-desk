@@ -1839,6 +1839,7 @@ function renderStats() {
    导出只在本地生成 JSON：自建词库、SRS 复习记录、错题本、屏蔽表、设置、每日统计。
    导入采用合并策略（同词取较新记录），不删除现有更新的数据；v0.09 旧「导出进度」文件也能读。 */
 const BACKUP_SCHEMA = 1;
+const FIRST_BACKUP_HINT_KEY = 'wd-backup-export-hint-v1';
 
 function isPlainObject(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v);
@@ -1891,6 +1892,12 @@ async function exportProgress() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     const s = payload.summary;
     toast(`已导出本地备份：自建词 ${s.userWords} 条 · 复习记录 ${s.srsRecords} 条 · 屏蔽 ${s.blocked} 条。文件请自行保存。`);
+    let firstHint = false;
+    try { firstHint = localStorage.getItem(FIRST_BACKUP_HINT_KEY) !== '1'; } catch (e) { firstHint = false; }
+    if (firstHint) {
+      try { localStorage.setItem(FIRST_BACKUP_HINT_KEY, '1'); } catch (e) { /* 隐私模式静默 */ }
+      setTimeout(() => toast('这份文件是唯一的进度副本，请自己保存'), 900);
+    }
     track('backup_export', { userWords: s.userWords, srs: s.srsRecords });
   } catch (e) {
     toast('导出失败：' + (e && e.message ? e.message : e));
@@ -2882,11 +2889,15 @@ function applyListenEntry(card) {
 }
 
 function switchListenToRecall(card, note) {
+  // 手动或超时转文字拼写前先保住已输入内容，重绘后回填并恢复焦点
+  const typed = document.getElementById('recallInput');
+  if (typed) card.recallTyped = typed.value;
   const i = card.steps.indexOf('listen');
   if (i >= 0) card.steps[i] = 'recall';
   card.listenFailed = true;
   card.listenFallback = 'recall';
   renderSession();
+  restoreRecallFocus();
   if (note) toast(note);
 }
 
@@ -3063,17 +3074,46 @@ function ensureChoices(card) {
   if (!card.choices.length) buildChoices(card);
 }
 
+/* 反义守卫：「不快乐的」包含「快乐的」不是同义而是反义。
+   否定字的作用域不止管后一个字（「不/快乐/的」），所以向前看 3 个字内有没有否定字。
+   「非常/别人/未来/非同」等词里的「非/别/未」不是否定算子，需按二字词例外跳过。 */
+const ZH_NEG_CHARS = '不无没非未别莫勿';
+const ZH_NEG_LEXICAL = new Set([
+  '非常', '非凡', '非洲', '非同', '非但',
+  '未来',
+  '别人', '别的', '别处', '别样', '别墅', '别致', '别名', '特别'
+]);
+function negatedNear(s, i) {
+  for (let j = Math.max(0, i - 3); j < i; j++) {
+    if (!ZH_NEG_CHARS.includes(s[j])) continue;
+    // 否定字是「非常」等非否定二字词的首字 → 不算否定
+    if (j + 1 < s.length && ZH_NEG_LEXICAL.has(s.slice(j, j + 2))) continue;
+    // 「特别」等：否定字形落在二字词第二字
+    if (j > 0 && ZH_NEG_LEXICAL.has(s.slice(j - 1, j + 1))) continue;
+    return true;
+  }
+  return false;
+}
+function hasPlainHit(container, sub) {
+  let i = container.indexOf(sub);
+  while (i !== -1) {
+    if (!negatedNear(container, i)) return true;
+    i = container.indexOf(sub, i + 1);
+  }
+  return false;
+}
+
 function looseChineseMatch(input, meanings) {
   const g = normalizeChinese(input);
   if (!g) return false;
   return meanings.some((m) => {
     const t = normalizeChinese(m);
     if (!t) return false;
-    if (g.includes(t) || t.includes(g)) return true;
+    if (hasPlainHit(g, t) || hasPlainHit(t, g)) return true;
     const maxLen = Math.min(6, t.length);
     for (let len = maxLen; len >= 2; len--) {
       for (let i = 0; i + len <= t.length; i++) {
-        if (g.includes(t.slice(i, i + len))) return true;
+        if (!negatedNear(t, i) && hasPlainHit(g, t.slice(i, i + len))) return true;
       }
     }
     return false;
@@ -3105,6 +3145,25 @@ function lookupWordAll(lower) {
     || null;
 }
 
+/* 英文反义守卫：unhappy/happy、careless/careful 是否定构词对，不算同义。
+   中文释义碎片（如「心的」）区分不了反义，必须在词形层拦截。 */
+const NEG_PREFIXES = ['un', 'dis', 'in', 'im', 'ir', 'il', 'non'];
+function negPrefixOf(w, otherLower) {
+  if (otherLower.length < 3) return false;
+  const annotated = (w.prefixes || []).map((p) => p.replace(/-+$/, ''));
+  const pres = annotated.length ? annotated.filter((p) => NEG_PREFIXES.includes(p)) : NEG_PREFIXES;
+  return pres.some((p) => w.lower === p + otherLower);
+}
+function isNegatedPair(a, b) {
+  if (negPrefixOf(a, b.lower) || negPrefixOf(b, a.lower)) return true;
+  const lessStem = (w) => w.lower.length > 5 && w.lower.endsWith('less') ? w.lower.slice(0, -4) : '';
+  const sa = lessStem(a);
+  const sb = lessStem(b);
+  if (sa && b.lower.startsWith(sa) && b.lower.length > sa.length) return true;
+  if (sb && a.lower.startsWith(sb) && a.lower.length > sb.length) return true;
+  return false;
+}
+
 function gradeEnglish(word, input) {
   const target = normalizeEnglish(word.word);
   const got = normalizeEnglish(input);
@@ -3112,8 +3171,11 @@ function gradeEnglish(word, input) {
   if (got === target) return { level: 'exact' };
   // 短词（<5 字母）编辑距离 1 就是另一个词，不做容错；长词放宽到 2
   const tol = target.length >= 9 ? 2 : target.length >= 5 ? 1 : 0;
-  if (tol > 0 && levenshtein(got, target) <= tol) return { level: 'close' };
   const alt = lookupWordAll(got);
+  // 反义构词对连「拼写差一点」都不算：unimportant 不是 important 的 typo。
+  // 输入的词可能不在词库里（alt 为空），词形判断不依赖词条释义，照查。
+  if (isNegatedPair(word, alt || { lower: got, prefixes: [], suffixes: [] })) return { level: 'wrong' };
+  if (tol > 0 && levenshtein(got, target) <= tol) return { level: 'close' };
   if (alt && alt.meanings.some((m) => looseChineseMatch(m, word.meanings))) {
     return { level: 'synonym', match: alt.word };
   }
