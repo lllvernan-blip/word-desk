@@ -1081,6 +1081,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 
 .origin-badge.user { color: var(--brand); background: var(--brand-soft); }
 .origin-badge.remote { color: var(--pre); background: var(--pre-soft); }
+.origin-badge.ext { color: var(--suf); background: var(--suf-soft); }
 
 .due-badge {
   font-size: 11px;
@@ -1837,6 +1838,39 @@ body.is-session .view-practice { max-width: 780px; }
 .audio-cache-field { grid-column: 1 / -1; }
 .audio-cache-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .audio-cache-row .btn { flex: none; }
+/* 「不需要」清单：设置里查看并逐个恢复 */
+.blocked-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 132px; overflow: auto; }
+.blocked-list .hint { margin: 0; }
+.blocked-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--surface, transparent);
+}
+.blocked-chip .btn { padding: 1px 6px; }
+/* 词库卡片上的「不需要」：次要位置，浅色小按钮 */
+.block-lib-btn { opacity: .75; }
+.block-lib-btn:hover { opacity: 1; }
+/* 扩展词包列表：每层一行，名称 + 词数 + 加载/移除 */
+.ext-packs-field { grid-column: 1 / -1; }
+.ext-pack-list { display: flex; flex-direction: column; }
+.ext-pack-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 13px;
+}
+.ext-pack-row:last-child { border-bottom: none; }
+.ep-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-flag { margin-left: 6px; font-size: 11px; color: var(--muted); }
+.ep-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ext-pack-row .btn { flex: none; }
 /* 词卡上的轻量屏蔽入口：不抢发音按钮的视觉权重 */
 .block-word-btn {
   border: 1px solid var(--line);
