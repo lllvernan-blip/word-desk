@@ -429,6 +429,14 @@
                 <span class="hint" id="blockedStat">还未屏蔽任何词</span>
                 <button class="btn tiny ghost" id="unblockBtn" type="button" disabled>撤销最近一个</button>
               </div>
+              <div id="blockedList" class="blocked-list"></div>
+              <p class="hint">词库页点「不需要」的词会进这里，点「恢复」即可重新出现。可导出这份清单交给作者删词。</p>
+              <button class="btn tiny ghost" id="exportMarksBtn" type="button">导出「不需要」清单</button>
+            </div>
+            <div class="setup-field ext-packs-field">
+              <span class="field-label">扩展词包</span>
+              <div id="extPackList" class="ext-pack-list"><p class="hint">加载中…</p></div>
+              <p class="hint">按需加载 ECDICT 分层词包，未加载不影响默认词库与离线练习；加载后与内置词合并，同名单词以内置为准。扩展词发音已随音频包提供，个别缺音频的词不出现听音卡，发音按钮改用设备自带语音。</p>
             </div>
     </div>
     <div class="form-actions">

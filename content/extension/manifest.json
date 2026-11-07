@@ -1,0 +1,48 @@
+{
+  "v": "2026.11.07.1",
+  "updatedAt": "2026-11-07T00:00:00Z",
+  "packs": [
+    {
+      "id": "cet46",
+      "name": "四六级",
+      "official": true,
+      "count": 3703,
+      "url": "./content/extension/cet46.json"
+    },
+    {
+      "id": "kaoyan",
+      "name": "考研",
+      "official": true,
+      "count": 2871,
+      "url": "./content/extension/kaoyan.json"
+    },
+    {
+      "id": "abroad",
+      "name": "留学（雅思·托福）",
+      "official": true,
+      "count": 6572,
+      "url": "./content/extension/abroad.json"
+    },
+    {
+      "id": "gre",
+      "name": "GRE",
+      "official": true,
+      "count": 6465,
+      "url": "./content/extension/gre.json"
+    },
+    {
+      "id": "tem8",
+      "name": "专八（近似）",
+      "official": false,
+      "count": 7158,
+      "url": "./content/extension/tem8.json"
+    },
+    {
+      "id": "phd",
+      "name": "考博（近似）",
+      "official": false,
+      "count": 10666,
+      "url": "./content/extension/phd.json"
+    }
+  ]
+}
