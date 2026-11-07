@@ -226,68 +226,6 @@
 
         <div class="lib-grid" id="libraryGrid"></div>
         <div class="load-more" id="loadMoreWrap" hidden><button class="btn tiny" id="loadMoreBtn" type="button">显示更多词条</button></div>
-
-        <details class="import-panel" id="importPanel">
-          <summary>导入我的词表 <span class="tag">CSV / TXT / JSON</span></summary>
-          <div class="import-body">
-            <div class="ai-brief">
-              <div class="ai-brief-head">
-                <b>用 AI 生成词表</b>
-                <button class="btn tiny" id="copyBriefBtn" type="button">复制提示词</button>
-              </div>
-              <textarea id="aiBrief" rows="7" readonly spellcheck="false">请把下面这组单词整理成可直接导入的 CSV 词表，只输出 CSV 本身，不要 Markdown 代码块、不要解释。
-
-表头：word,meaning,pos,prefixes,suffixes
-规则：
-1. word：小写英文单词，必填
-2. meaning：中文释义，必填；多个义项用中文分号「；」分隔
-3. pos：词性，用 n / v / adj / adv / prep 等，多个用英文逗号分隔
-4. prefixes / suffixes：词缀，写成 un- / -able 这种带横线的形式；没有就留空
-5. 每行一个词，重复的只保留一条
-
-单词：
-（把你的单词贴在这里）</textarea>
-              <p class="hint-line">把这段提示词连同单词发给 AI，让它生成 CSV 文件，再拖到下面导入。</p>
-            </div>
-            <label class="dropzone" id="dropZone" for="fileInput">
-              <div class="dz-icon" aria-hidden="true">⇩</div>
-              <div class="dz-title">把 CSV / TXT / JSON 文件拖到这里</div>
-              <div class="dz-sub">或点击选择文件。TXT 支持「单词,释义」或纯单词列表；纯词表只读取内置释义，不写入你的自建词库。</div>
-              <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.json,text/csv,text/plain,application/json" hidden />
-            </label>
-            <p class="hint-line">有离线音频的词直接播放标准发音，没有音频的词用文字练习（不发声）。</p>
-            <div class="import-actions">
-              <button class="btn tiny ghost" id="pasteFromPanelBtn" type="button">粘贴词表临时练习</button>
-              <button class="btn tiny" id="csvTemplateBtn" type="button">下载 CSV 模板</button>
-              <button class="btn tiny" id="jsonExampleBtn" type="button">下载 JSON 示例</button>
-              <button class="btn tiny" id="loadSampleBtn" type="button">载入示例词表试试</button>
-              <button class="btn tiny ghost" id="clearUserBtn" type="button">清空我的词库</button>
-            </div>
-            <details class="format-help">
-              <summary>手写 CSV / JSON 的格式说明</summary>
-            <div class="help-grid">
-              <div class="help-box">
-                <b>CSV 怎么写</b>
-                第一行是表头，用英文列名即可：<code>word</code> 单词，<code>meaning</code> 中文释义，<code>pos</code> 词性，<code>prefixes</code> 前缀，<code>suffixes</code> 后缀。<br />
-                多个义项用中文分号 <code>；</code> 分隔，多个词性/词缀用英文逗号分隔。词缀写 <code>un-</code>、<code>-able</code> 这种带横线的形式即可。
-                <div class="cols">
-                  <span class="tag">Word 不可为空</span><span class="tag">Meaning 必填</span><span class="tag">其余可留空</span>
-                </div>
-              </div>
-              <div class="help-box">
-                <b>JSON 怎么写</b>
-                可以是数组，也可以是 <code>{"words": [...]}</code>。每个对象包含 <code>word</code>、<code>meaning</code>（或 <code>meanings</code> 数组）、<code>pos</code>、<code>prefixes</code>、<code>suffixes</code>。<br />
-                也可以只写一个单词字符串，释义留空后可在词库中编辑补充。
-                <div class="cols">
-                  <span class="tag">UTF-8 编码</span><span class="tag">支持拖拽</span><span class="tag">重复单词会跳过</span>
-                </div>
-              </div>
-            </div>
-            </details>
-            <div id="importResult"></div>
-            <div class="import-errors" id="importErrors"></div>
-          </div>
-        </details>
       </section>
     </section>
 
@@ -600,6 +538,83 @@
         <button class="btn primary" type="submit">保存</button>
       </div>
     </form>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="importModal" hidden>
+  <div class="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+    <div class="modal-head">
+      <h3 id="importModalTitle">导入词表</h3>
+      <button class="modal-close" id="closeImportModal" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="import-body">
+      <div class="ai-brief">
+        <div class="ai-brief-head">
+          <b>用 AI 生成</b>
+          <button class="btn tiny" id="copyBriefBtn" type="button">复制提示词</button>
+        </div>
+        <textarea id="aiBrief" rows="6" readonly spellcheck="false">请把下面这组单词整理成可直接导入的 CSV 词表，只输出 CSV 本身，不要 Markdown 代码块、不要解释。
+
+表头：word,meaning,pos,prefixes,suffixes
+规则：
+1. word：小写英文单词，必填
+2. meaning：中文释义，必填；多个义项用中文分号「；」分隔
+3. pos：词性，用 n / v / adj / adv / prep 等，多个用英文逗号分隔
+4. prefixes / suffixes：词缀，写成 un- / -able 这种带横线的形式；没有就留空
+5. 每行一个词，重复的只保留一条
+
+单词：
+（把你的单词贴在这里）</textarea>
+      </div>
+
+      <label class="dropzone" id="dropZone" for="fileInput">
+        <div class="dz-icon" aria-hidden="true">⇩</div>
+        <div class="dz-title">拖入或点选 CSV / TXT / JSON</div>
+        <div class="dz-sub">TXT 支持「单词,释义」或纯单词；纯词表只读内置释义</div>
+        <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.json,text/csv,text/plain,application/json" hidden />
+      </label>
+
+      <button class="btn" id="pasteFromPanelBtn" type="button">粘贴词表临时练习</button>
+
+      <details class="import-more">
+        <summary>模板 · 示例 · 清空</summary>
+        <div class="import-actions">
+          <button class="btn tiny" id="csvTemplateBtn" type="button">CSV 模板</button>
+          <button class="btn tiny" id="jsonExampleBtn" type="button">JSON 示例</button>
+          <button class="btn tiny" id="loadSampleBtn" type="button">载入示例词表</button>
+          <button class="btn tiny ghost" id="clearUserBtn" type="button">清空我的词库</button>
+        </div>
+      </details>
+
+      <details class="format-help">
+        <summary>教程</summary>
+        <div class="help-grid">
+          <div class="help-box">
+            <b>手机</b>
+            点「复制提示词」→ 发给 AI 生成 CSV → 回到这里点选文件导入。也可点「粘贴词表临时练习」直接练，不写入自建词库。
+          </div>
+          <div class="help-box">
+            <b>电脑</b>
+            把文件拖进上方虚线框；或下载模板/示例改好再导入。JSON 可为数组或 <code>{"words":[...]}</code>。
+          </div>
+          <div class="help-box">
+            <b>CSV 列</b>
+            表头 <code>word,meaning,pos,prefixes,suffixes</code>。<code>word</code>/<code>meaning</code> 必填；义项用 <code>；</code>，词缀写 <code>un-</code>/<code>-able</code>。
+          </div>
+          <div class="help-box">
+            <b>注意</b>
+            UTF-8；重复词跳过；有离线音频的词会播发音，没有则静音文字练习。
+          </div>
+        </div>
+      </details>
+
+      <div id="importResult"></div>
+      <div class="import-errors" id="importErrors"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" id="importModalDone" type="button">完成</button>
+    </div>
   </div>
 </div>
 
