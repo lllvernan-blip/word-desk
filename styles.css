@@ -836,6 +836,34 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   border-radius: var(--radius-sm);
 }
 
+/* 情景例句：有句才出块，无句不占位；弱于主释义 */
+.examples-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+}
+.example-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  font-style: italic;
+}
+.example-line + .example-line { margin-top: 4px; }
+.word-card .examples-block {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 0;
+}
+.word-card .example-line {
+  font-size: 12.5px;
+  font-style: normal;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .recall-hint { margin-top: 14px; color: var(--ink-2); font-size: 14.5px; }
 .letter-hint { font-family: var(--font-word); }
 

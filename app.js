@@ -60,6 +60,61 @@ function normAffix(token, type) {
   return t;
 }
 
+/* 情景例句：词条自带 examples / 可选 content/examples.json 旁路；无句不渲染 */
+function normalizeExamples(raw) {
+  if (raw == null || raw === '') return [];
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    return s ? [s] : [];
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((x) => String(x == null ? '' : x).trim()).filter(Boolean);
+  }
+  return [];
+}
+
+const EXAMPLE_BANK = { loaded: false, map: new Map() };
+
+async function loadExamplesContent() {
+  try {
+    const res = await fetch('./content/examples.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const map = new Map();
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      Object.keys(data).forEach((k) => {
+        const key = normalizeEnglish(k);
+        const list = normalizeExamples(data[k]);
+        if (key && list.length) map.set(key, list);
+      });
+    }
+    EXAMPLE_BANK.map = map;
+    EXAMPLE_BANK.loaded = true;
+  } catch (e) {
+    // 懒加载失败当无句：不阻塞主流程
+    EXAMPLE_BANK.map = new Map();
+    EXAMPLE_BANK.loaded = false;
+  }
+}
+
+function wordExamples(w) {
+  if (!w) return [];
+  const own = normalizeExamples(w.examples);
+  if (own.length) return own;
+  const k = wordKey(w);
+  if (!k) return [];
+  const bank = EXAMPLE_BANK.map.get(k);
+  return bank && bank.length ? bank.slice() : [];
+}
+
+function examplesHTML(w) {
+  // 开关关永不显示；开且无数据不占位
+  if (!settings.showExamples) return '';
+  const list = wordExamples(w);
+  if (!list.length) return '';
+  return `<div class="examples-block" aria-label="情景例句">${list.map((s) => `<p class="example-line">${esc(s)}</p>`).join('')}</div>`;
+}
+
 function makeWord(raw, origin) {
   if (typeof raw === 'string') {
     const parts = raw.split('|');
@@ -95,7 +150,8 @@ function makeWord(raw, origin) {
     origin: raw.origin || origin || 'user',
     source: raw.source || origin || 'user',
     createdAt: raw.createdAt || Date.now(),
-    updatedAt: raw.updatedAt || Date.now()
+    updatedAt: raw.updatedAt || Date.now(),
+    examples: normalizeExamples(raw.examples != null ? raw.examples : raw.example)
   };
 }
 
@@ -1666,6 +1722,7 @@ function renderLibrary() {
         <span class="pos">${esc(w.pos.join('/') || '—')}</span>
       </div>
       <div class="mn">${esc(w.meanings.join('；') || '暂无释义')}${w.phonetic ? ` · <span class="phon">${esc(w.phonetic)}</span>` : ''}</div>
+      ${examplesHTML(w)}
       <div class="ft">
         <div class="word-tags">
           ${affixTagsHTML(w)}
@@ -2685,6 +2742,7 @@ function revealHTML(card) {
         <div class="meaning-list">
           ${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}
         </div>
+        ${examplesHTML(w)}
         ${affixRowsHTML(w)}
       </div>
       <div class="action-row">
@@ -2802,6 +2860,7 @@ function resultHTML(card) {
         <div class="meaning-list">
           ${w.meanings.map((m, i) => `<div class="meaning-item"><span class="idx">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}
         </div>
+        ${examplesHTML(w)}
         ${affixRowsHTML(w)}
       </div>
       <p class="hint-line">下次复习：<b>${rec ? esc(dueText(rec.due)) : '—'}</b> · 稳定度 ${rec ? esc((rec.stability || 0).toFixed(1)) : '0'} 天 · 难度 ${rec ? esc((rec.difficulty || 0).toFixed(1)) : '—'}</p>
@@ -4635,6 +4694,8 @@ function bindEvents() {
     $('showExamplesToggle').addEventListener('change', (e) => {
       settings.showExamples = !!e.target.checked;
       saveSettings();
+      if (session) renderSession();
+      renderLibrary();
     });
   }
   $('followReadToggle').addEventListener('change', (e) => {
@@ -5116,6 +5177,8 @@ async function init() {
   await loadRootContent();
   // 敏感性清单决定练习库与干扰项安全池，必须在任何队列/选项卡生成之前加载
   await loadSensitiveContent();
+  // 例句旁路可选；失败当无句，不阻塞开局
+  await loadExamplesContent();
   buildFilterOptions();
   bindEvents();
   syncSettingsUI();
@@ -5154,6 +5217,9 @@ async function init() {
     get rootsInfo() { return rootsInfo; },
     get rootData() { return rootData; },
     get features() { return { listenDictation: FEATURES.listenDictation, followRead: FEATURES.followRead }; },
+    wordExamples,
+    examplesHTML,
+    EXAMPLE_BANK,
     rootEntry,
     drillRoots,
     startDrill,
