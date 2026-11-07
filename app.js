@@ -4005,6 +4005,18 @@ function onPasteInput() {
   pasteTimer = setTimeout(() => { try { renderPastePreview(); } catch (_) {} }, 280);
 }
 
+function openImportModal() {
+  const modal = $('importModal');
+  if (!modal) return;
+  modal.hidden = false;
+}
+
+function closeImportModal() {
+  const modal = $('importModal');
+  if (!modal) return;
+  modal.hidden = true;
+}
+
 function openPasteModal() {
   $('pasteModal').hidden = false;
   if (!$('pasteInput').value && pasteList && pasteList.words.length) {
@@ -4024,6 +4036,7 @@ function startPasteSession() {
   pasteList = { words: r.matched.slice(), createdAt: Date.now() };
   saveKV('pasteList', pasteList);
   closePasteModal();
+  closeImportModal();
   syncPasteEntry();
   startSession('list', settings.count);
 }
@@ -4719,7 +4732,7 @@ function bindEvents() {
     if (!act) return;
     if (act.dataset.rootAction === 'library') {
       showView('library');
-      $('importPanel').open = true;
+      openImportModal();
     } else if (act.dataset.rootAction === 'all') {
       startSession('library', settings.count);
     }
@@ -4732,7 +4745,7 @@ function bindEvents() {
       const action = emptyAct.dataset.emptyAction;
       if (action === 'clear') clearAllFilters();
       else if (action === 'practice') showView('practice');
-      else if (action === 'import') { showView('library'); $('importPanel').open = true; }
+      else if (action === 'import') { showView('library'); openImportModal(); }
       return;
     }
     const edit = e.target.closest('[data-edit]');
@@ -4760,9 +4773,7 @@ function bindEvents() {
 
   $('importBtn').addEventListener('click', () => {
     showView('library');
-    const panel = $('importPanel');
-    panel.open = true;
-    setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+    openImportModal();
   });
   $('addWordBtn').addEventListener('click', () => openWordModal(''));
   $('closeModal').addEventListener('click', closeWordModal);
@@ -4811,6 +4822,13 @@ function bindEvents() {
   $('clearUserBtn').addEventListener('click', clearUserWords);
 
   if ($('pasteFromPanelBtn')) $('pasteFromPanelBtn').addEventListener('click', openPasteModal);
+
+  if ($('importModal')) {
+    const closeImp = () => closeImportModal();
+    if ($('importModalDone')) $('importModalDone').addEventListener('click', closeImp);
+    if ($('closeImportModal')) $('closeImportModal').addEventListener('click', closeImp);
+    $('importModal').addEventListener('click', (e) => { if (e.target === $('importModal')) closeImp(); });
+  }
 
   /* 分类筛选弹窗：打开时存快照，取消还原，应用保留 */
   if ($('filterOpenBtn')) {
@@ -4875,7 +4893,9 @@ function bindEvents() {
     if (e.target.closest('[data-start-list]')) startSession('list', settings.count);
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('pasteModal').hidden) closePasteModal();
+    if (e.key !== 'Escape') return;
+    if ($('pasteModal') && !$('pasteModal').hidden) { closePasteModal(); return; }
+    if ($('importModal') && !$('importModal').hidden) { closeImportModal(); return; }
   });
 
   $('analyticsBtn').addEventListener('click', () => { $('analyticsPanel').hidden = !$('analyticsPanel').hidden; });

@@ -1095,8 +1095,8 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 .import-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 4px 18px 18px;
+  gap: 12px;
+  padding: 0;
 }
 
 .dropzone {
@@ -1104,7 +1104,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 30px 20px;
+  padding: 22px 16px;
   border: 1.5px dashed var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--sheet);
@@ -2286,7 +2286,21 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
 }
 .ai-brief .hint-line { margin: 8px 0 0; }
 
-.format-help { margin-top: 14px; }
+.import-modal { width: min(640px, 100%); max-height: min(90dvh, 820px); }
+.import-modal .ai-brief { margin-bottom: 0; }
+.import-more { margin-top: 2px; }
+.import-more > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0;
+  list-style: none;
+  user-select: none;
+}
+.import-more > summary::-webkit-details-marker { display: none; }
+.import-more[open] > summary { color: var(--ink-2); }
+.import-more .import-actions { margin-top: 8px; }
+.format-help { margin-top: 2px; }
 .format-help summary {
   cursor: pointer;
   font-size: 13px;
@@ -2323,8 +2337,8 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
 .filter-modal .form-actions { flex: none; padding-top: 12px; }
 .settings-modal { max-width: 520px; }
 @media (max-width: 640px) {
-  .modal-overlay#filterModal, .modal-overlay#settingsModal { padding: 0; }
-  .modal-overlay#filterModal .modal, .modal-overlay#settingsModal .modal {
+  .modal-overlay#filterModal, .modal-overlay#settingsModal, .modal-overlay#importModal { padding: 0; }
+  .modal-overlay#filterModal .modal, .modal-overlay#settingsModal .modal, .modal-overlay#importModal .modal {
     width: 100%;
     max-width: none;
     max-height: 100dvh;
@@ -2332,6 +2346,7 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
     border-radius: 0;
     border: 0;
   }
+  .import-modal .help-grid { grid-template-columns: 1fr; }
 }
 
 /* 平板宽度（641–920）：内容不再铺满整行，收成阅读列宽 */
