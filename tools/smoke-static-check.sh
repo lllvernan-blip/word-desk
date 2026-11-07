@@ -54,7 +54,7 @@ else
   bad "缺少 dist/content/sensitive.json"
 fi
 
-# 8) audio index vs packs
+# 8) audio index vs packs（不写死分片数，只查一致性：v 存在、meta 与实际 bin 数一致、词条偏移不越界）
 if [ -f dist/audio/index.json ]; then
   EVAL=$(python3 - <<'PY'
 import json, glob
@@ -62,8 +62,10 @@ idx=json.load(open("dist/audio/index.json"))
 v=idx.get("v")
 packs=idx.get("packs") or []
 bins=sorted(glob.glob("dist/audio/pack-*.bin"))
-ok = (v is not None) and (len(packs)==len(bins)==17)
-print(f"v={v}; packs_meta={len(packs)}; bins={len(bins)}; ok={ok}")
+words=idx.get("words") or {}
+overflow=sum(1 for e in words.values() if not isinstance(e, list) or len(e)!=3 or not (0 <= e[0] < len(packs)))
+ok = (v is not None) and (len(packs)==len(bins)) and overflow==0 and len(words)>0
+print(f"v={v}; packs_meta={len(packs)}; bins={len(bins)}; words={len(words)}; overflow={overflow}; ok={ok}")
 PY
 )
   if echo "$EVAL" | grep -q 'ok=True'; then ok "audio index 与分片: $EVAL"; else bad "audio index 与分片不一致: $EVAL"; fi
@@ -77,6 +79,29 @@ if grep -n 'var(--text)' dist/styles.css >/dev/null 2>&1; then
 else
   ok "styles.css 无 var(--text)"
 fi
+
+# 10) examples.json 与扩展词包 manifest
+EVAL=$(python3 - <<'PY'
+import json, os
+ok=True; msg=[]
+try:
+    ex=json.load(open("dist/content/examples.json"))
+    msg.append(f"examples={len(ex)}")
+    ok = ok and len(ex)>0 and all(isinstance(v,list) and v for v in ex.values())
+except Exception as e:
+    ok=False; msg.append("examples-bad")
+try:
+    man=json.load(open("dist/content/extension/manifest.json"))
+    msg.append(f"extpacks={len(man.get('packs') or [])}")
+    for p in man.get("packs") or []:
+        d=json.load(open(os.path.join("dist/content/extension", p["id"]+".json")))
+        if d.get("count")!=len(d.get("words") or []): ok=False; msg.append(p["id"]+"-count-mismatch")
+except Exception:
+    ok=False; msg.append("extpacks-bad")
+print("; ".join(msg)+f"; ok={ok}")
+PY
+)
+  if echo "$EVAL" | grep -q 'ok=True'; then ok "内容包: $EVAL"; else bad "内容包异常: $EVAL"; fi
 
 note "--"
 note "合计 PASS=$PASS FAIL=$FAIL"

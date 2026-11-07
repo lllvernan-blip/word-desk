@@ -10,7 +10,10 @@ const CONFIG = {
   contentUrl: './content/manifest.json',
   pageSize: 24,
   maxEvents: 1200,
-  version: '2026.11.05.2'
+  version: '2026.11.07.1',
+  /* 「不需要」上报端点：留空 = 不发任何请求（默认）。
+     拿到 webhook 后把地址填在这里即可生效，无需改其它代码。 */
+  markReportUrl: ''
 };
 
 /* 功能开关：听音拼写已恢复，但只对 audio/index.json 里真实存在的词开放；
@@ -977,6 +980,22 @@ let settings = {
 };
 let userWords = [];
 let remoteWords = [];
+/* ---------- 扩展词包（Play B：ECDICT 分层，按需懒加载） ----------
+   未加载的层不进词库，不影响默认包与离线主路径；加载后与内置词合并，
+   同名单词以内置为准。专八/考博为「非官方大纲」近似层（ECDICT 无官方 tag）。 */
+const EXT_PACKS = [
+  { id: 'cet46', name: '四六级', official: true },
+  { id: 'kaoyan', name: '考研', official: true },
+  { id: 'abroad', name: '留学（雅思·托福）', official: true },
+  { id: 'gre', name: 'GRE', official: true },
+  { id: 'tem8', name: '专八（近似）', official: false },
+  { id: 'phd', name: '考博（近似）', official: false }
+];
+const EXT_BASE = './content/extension/';
+let extWords = [];      // 已加载层的词条（origin 'extension'）
+let extStore = {};      // { id: { v, fetchedAt, words: [raw] } }，持久化于 kv.extPacks
+let extBusy = new Set();
+let extManifest = null; // extension/manifest.json，仅用于展示各层词数
 let pasteList = null; // 粘贴批次 { words: [lower], createdAt }，只读内置词库，不写 userWords
 let srsMap = {};
 let wrongBook = [];
@@ -1010,6 +1029,12 @@ const SENSITIVE = {
 };
 let blockedWords = new Set();
 let blockedOrder = [];
+/* 「不需要」标记的本地统计：{ word: { count, firstAt, lastAt } }
+   只服务于「导出给作者删词」，与 blocked 共用同一份隐藏状态 */
+let markLog = {};
+/* 上报限频：{ word: 上次上报毫秒 }，同一词 24 小时内只发一次 */
+let markReportAt = {};
+const MARK_REPORT_GAP = 24 * 60 * 60 * 1000;
 
 /* 释义文本兜底：即使来源词未被词头清单命中，显式敏感中文也不进选项 */
 const UNSAFE_ZH_RE = /性交|性欲|色情|妓女|娼妓|卖淫|阴茎|阴道|精液|裸体|全裸|强奸|乱伦|手淫|猥亵|吸毒|毒品|海洛因|可卡因|古柯碱|大麻(?!哈)|鸦片|吗啡|冰毒|成瘾|自杀|谋杀|凶杀|屠杀|血腥|暴力|恐怖分子|暴行|尸体|斩首|肢解|酷刑|虐待|白痴|蠢货|废物|人渣|贱人|婊子|黑鬼|犹太佬|娘炮|残废/;
@@ -1061,22 +1086,132 @@ async function loadSensitiveContent() {
   invalidateLib();
 }
 
+function anonId() {
+  const key = LS_PREFIX + 'anonId';
+  try {
+    let v = localStorage.getItem(key);
+    if (!v) { v = uid(); localStorage.setItem(key, v); }
+    return v;
+  } catch (e) {
+    return 'temp-' + uid(); // 隐私模式禁止 localStorage 时只影响本次上报
+  }
+}
+
+/* 每次「不需要」都记一条本地统计，用于导出给作者删词 */
+function recordMark(k, source) {
+  const now = new Date().toISOString();
+  const e = markLog[k] || { count: 0, firstAt: now, lastAt: now };
+  e.count = (e.count || 0) + 1;
+  e.firstAt = e.firstAt || now;
+  e.lastAt = now;
+  if (source) e.lastSource = source;
+  markLog[k] = e;
+  saveKV('markLog', markLog);
+}
+
+/* 可配置上报：端点为空时绝不发请求；失败静默、同词 24h 限频 */
+function reportMark(k, source) {
+  const url = CONFIG.markReportUrl;
+  if (!url) return;
+  const now = Date.now();
+  if (now - Number(markReportAt[k] || 0) < MARK_REPORT_GAP) return;
+  markReportAt[k] = now;
+  saveKV('markReportAt', Object.assign({}, markReportAt));
+  const payload = {
+    word: k,
+    source: source || '',
+    at: new Date(now).toISOString(),
+    version: CONFIG.version,
+    anonId: anonId()
+  };
+  try {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify(payload)
+    }).catch(() => { /* 静默：不弹错、不留残余请求状态 */ });
+  } catch (e) { /* 静默 */ }
+}
+
+function buildMarkExport() {
+  /* 老数据里可能已有屏蔽词但没有统计：并集导出，次数未知记 0 */
+  const keys = new Set(Object.keys(markLog).concat(blockedOrder));
+  const marks = Array.from(keys).sort().map((k) => ({
+    word: k,
+    count: (markLog[k] && markLog[k].count) || 0,
+    firstAt: markLog[k] ? (markLog[k].firstAt || null) : null,
+    lastAt: markLog[k] ? (markLog[k].lastAt || null) : null,
+    hidden: blockedWords.has(k)
+  }));
+  return {
+    app: 'word-desk',
+    schema: 'mark-export-v1',
+    version: CONFIG.version,
+    exportedAt: new Date().toISOString(),
+    total: marks.length,
+    marks
+  };
+}
+
+function exportMarks() {
+  const data = buildMarkExport();
+  const day = new Date().toISOString().slice(0, 10);
+  downloadFile(`word-desk-不需要-${day}.json`, JSON.stringify(data, null, 2), 'application/json');
+  toast(data.total ? `已导出 ${data.total} 个「不需要」标记` : '还没有「不需要」标记，已导出空清单');
+  track('mark_export', { total: data.total });
+}
+
 function refreshBlockedUI() {
   const stat = $('blockedStat');
   const btn = $('unblockBtn');
   if (stat) stat.textContent = blockedOrder.length ? `已屏蔽 ${blockedOrder.length} 个词` : '还未屏蔽任何词';
   if (btn) btn.disabled = blockedOrder.length === 0;
+  const list = $('blockedList');
+  if (list) {
+    list.innerHTML = blockedOrder.length
+      ? blockedOrder.slice().reverse().map((k) =>
+        `<span class="blocked-chip"><span>${esc(k)}</span>` +
+        `<button class="btn tiny ghost" type="button" data-unblock="${esc(k)}" aria-label="恢复 ${esc(k)}">恢复</button></span>`).join('')
+      : '<p class="hint">还没有隐藏的词。词库页点「不需要」后会列在这里。</p>';
+  }
 }
 
-function addBlockedWord(lower) {
+function addBlockedWord(lower, source) {
   const k = normalizeEnglish(lower);
   if (!k || blockedWords.has(k)) return false;
   blockedWords.add(k);
   blockedOrder.push(k);
   saveKV('blocked', blockedOrder.slice());
+  recordMark(k, source);
+  reportMark(k, source);
   invalidateLib();
   refreshBlockedUI();
   return true;
+}
+
+function restoreBlockedWord(word) {
+  const k = normalizeEnglish(word);
+  if (!k || !blockedWords.has(k)) return false;
+  blockedWords.delete(k);
+  blockedOrder = blockedOrder.filter((x) => x !== k);
+  saveKV('blocked', blockedOrder.slice());
+  invalidateLib();
+  refreshBlockedUI();
+  renderLibrary();
+  renderPractice();
+  renderWrong();
+  toast(`已恢复「${k}」`);
+  return true;
+}
+
+/* 词库页「不需要」：复用 blocked，隐藏后立刻从列表消失 */
+function markNotNeeded(word) {
+  const k = normalizeEnglish(word);
+  if (!addBlockedWord(k, 'library')) { toast('这个词已在隐藏列表里'); return; }
+  renderLibrary();
+  renderPractice();
+  toast(`已隐藏「${k}」，可在设置里恢复`);
 }
 
 function undoBlockedWord() {
@@ -1097,6 +1232,7 @@ function library() {
   if (settings.libMode !== 'user') {
     BUILTIN.forEach((w) => { if (!isHiddenWord(w)) list.set(w.lower, w); });
     remoteWords.forEach((w) => { if (!isHiddenWord(w)) list.set(w.lower, w); });
+    extWords.forEach((w) => { if (!isHiddenWord(w) && !list.has(w.lower)) list.set(w.lower, w); });
   }
   if (settings.libMode !== 'builtin') {
     userWords.forEach((w) => { if (!isHiddenWord(w)) list.set(w.lower, w); });
@@ -1188,6 +1324,8 @@ async function loadState() {
     ? kv.blocked.map((w) => normalizeEnglish(w)).filter(Boolean)
     : [];
   blockedWords = new Set(blockedOrder);
+  markLog = kv.markLog && typeof kv.markLog === 'object' && !Array.isArray(kv.markLog) ? kv.markLog : {};
+  markReportAt = kv.markReportAt && typeof kv.markReportAt === 'object' && !Array.isArray(kv.markReportAt) ? kv.markReportAt : {};
   if (kv.content && Array.isArray(kv.content.words)) {
     remoteWords = kv.content.words.map((w) => makeWord(w, 'remote')).filter(Boolean);
     contentInfo = {
@@ -1197,6 +1335,8 @@ async function loadState() {
       count: remoteWords.length
     };
   }
+  if (kv.extPacks && typeof kv.extPacks === 'object' && !Array.isArray(kv.extPacks)) extStore = kv.extPacks;
+  rebuildExtWords();
   userWords = (await DB.all('userWords')).map((w) => makeWord(w, 'user')).filter(Boolean);
   pasteList = kv.pasteList && Array.isArray(kv.pasteList.words) && kv.pasteList.words.length
     ? { words: kv.pasteList.words.slice(), createdAt: kv.pasteList.createdAt || Date.now() }
@@ -1728,12 +1868,14 @@ function renderLibrary() {
           ${affixTagsHTML(w)}
           ${w.origin === 'user' ? '<span class="origin-badge user">我的</span>' : ''}
           ${w.origin === 'remote' ? '<span class="origin-badge remote">远端</span>' : ''}
+          ${w.origin === 'extension' ? `<span class="origin-badge ext">${esc((EXT_PACKS.find((p) => p.id === w.extId) || {}).name || '扩展')}</span>` : ''}
           ${dueBadgeHTML(w)}
         </div>
         <div class="ops">
           ${w.origin === 'user'
             ? `<button class="btn tiny" type="button" data-edit="${esc(w.word)}">编辑</button><button class="btn tiny ghost" type="button" data-del="${esc(w.word)}">删除</button>`
             : ''}
+          <button class="btn tiny ghost block-lib-btn" type="button" data-block-lib="${esc(w.word)}" title="以后不想再看到这个词">不需要</button>
         </div>
       </div>
     </article>`).join('');
@@ -3584,7 +3726,7 @@ function blockCurrentWord() {
   const card = currentCard();
   if (!session || !card) return;
   const lower = card.word.lower;
-  if (!addBlockedWord(lower)) {
+  if (!addBlockedWord(lower, 'practice')) {
     toast('这个词已经在屏蔽列表里');
     return;
   }
@@ -4380,6 +4522,90 @@ async function loadRootContent(expectedVersion) {
   } catch (e) { /* 静默回退内置副本 */ }
 }
 
+/* ---------- 扩展词包：加载 / 移除 / 列表（Play B） ---------- */
+function rebuildExtWords() {
+  extWords = [];
+  Object.keys(extStore).forEach((id) => {
+    const pack = extStore[id];
+    const list = pack && Array.isArray(pack.words) ? pack.words : [];
+    list.forEach((raw) => {
+      const w = makeWord(raw, 'extension');
+      if (w && w.meanings.length) { w.extId = id; extWords.push(w); }
+    });
+  });
+  saveKV('extPacks', extStore);
+  invalidateLib();
+}
+
+function extPackMeta(id) {
+  const p = extManifest && Array.isArray(extManifest.packs)
+    ? extManifest.packs.find((x) => x.id === id) : null;
+  return p || null;
+}
+
+function renderExtPackList() {
+  const box = $('extPackList');
+  if (!box) return;
+  box.innerHTML = EXT_PACKS.map((p) => {
+    const st = extStore[p.id];
+    const meta = extPackMeta(p.id);
+    const count = st && Array.isArray(st.words) ? st.words.length : (meta ? meta.count : null);
+    const metaText = st
+      ? `已加载 ${count} 词`
+      : (count != null ? `${count.toLocaleString('en')} 词` : '未加载');
+    const flag = p.official ? '' : '<span class="ep-flag">非官方大纲</span>';
+    const action = extBusy.has(p.id)
+      ? '<button class="btn tiny ghost" type="button" disabled>处理中…</button>'
+      : st
+        ? `<button class="btn tiny ghost" type="button" data-ext-action="remove" data-ext-id="${p.id}">移除</button>`
+        : `<button class="btn tiny" type="button" data-ext-action="load" data-ext-id="${p.id}">加载</button>`;
+    return `<div class="ext-pack-row"><span class="ep-name">${esc(p.name)}${flag}</span>` +
+      `<span class="ep-meta">${metaText}</span>${action}</div>`;
+  }).join('');
+}
+
+async function fetchExtManifest() {
+  try {
+    const res = await fetch(EXT_BASE + 'manifest.json', { cache: 'no-cache' });
+    if (res.ok) extManifest = await res.json();
+  } catch (e) { /* 离线或缺失时只显示已加载层 */ }
+  renderExtPackList();
+}
+
+async function loadExtPack(id) {
+  const pack = EXT_PACKS.find((x) => x.id === id);
+  if (!pack || extBusy.has(id)) return;
+  extBusy.add(id);
+  renderExtPackList();
+  try {
+    const res = await fetch(EXT_BASE + id + '.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const words = Array.isArray(data.words) ? data.words : [];
+    if (!words.length) throw new Error('词包为空');
+    extStore[id] = { v: data.v || '', fetchedAt: new Date().toISOString(), words };
+    rebuildExtWords();
+    renderAll();
+    track('ext_pack_load', { id, count: words.length });
+    toast(`已加载「${pack.name}」${words.length} 词`);
+  } catch (e) {
+    toast(`「${pack.name}」加载失败，请检查网络后重试`);
+  }
+  extBusy.delete(id);
+  renderExtPackList();
+}
+
+function removeExtPack(id) {
+  const pack = EXT_PACKS.find((x) => x.id === id);
+  if (!pack || !extStore[id]) return;
+  delete extStore[id];
+  rebuildExtWords();
+  renderAll();
+  track('ext_pack_remove', { id });
+  toast(`已移除「${pack.name}」`);
+  renderExtPackList();
+}
+
 /* ---------- 远端内容热更新 ---------- */
 async function refreshRemoteContent() {
   if (!/^http/i.test(location.protocol)) return;
@@ -4590,6 +4816,11 @@ function bindEvents() {
 
   $('clearAudioCacheBtn').addEventListener('click', clearAudioCache);
   $('unblockBtn').addEventListener('click', undoBlockedFromSettings);
+  $('exportMarksBtn').addEventListener('click', exportMarks);
+  $('blockedList').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-unblock]');
+    if (btn) restoreBlockedWord(btn.dataset.unblock);
+  });
 
   $('privacyOpenBtn').addEventListener('click', openPrivacy);
   $('privacyDone').addEventListener('click', () => { $('privacyModal').hidden = true; });
@@ -4809,6 +5040,8 @@ function bindEvents() {
       else if (action === 'import') { showView('library'); openImportModal(); }
       return;
     }
+    const blockLib = e.target.closest('[data-block-lib]');
+    if (blockLib) { markNotNeeded(blockLib.dataset.blockLib); return; }
     const edit = e.target.closest('[data-edit]');
     if (edit) { openWordModal(edit.dataset.edit); return; }
     const del = e.target.closest('[data-del]');
@@ -4918,7 +5151,13 @@ function bindEvents() {
   }
 
   /* 练习设置弹窗：设置本来就是即时生效，弹窗只当容器 */
-  const openSettingsModal = () => { $('settingsModal').hidden = false; refreshAudioCacheStat(); };
+  const openSettingsModal = () => {
+    $('settingsModal').hidden = false;
+    refreshBlockedUI();
+    refreshAudioCacheStat();
+    renderExtPackList();
+    fetchExtManifest();
+  };
   if ($('settingsOpenBtn')) $('settingsOpenBtn').addEventListener('click', openSettingsModal);
   if ($('settingsGearBtn')) $('settingsGearBtn').addEventListener('click', openSettingsModal);
   if ($('settingsOpenBtn') || $('settingsGearBtn')) {
@@ -4926,6 +5165,14 @@ function bindEvents() {
     $('settingsModalDone').addEventListener('click', closeSettingsModal);
     $('closeSettingsModal').addEventListener('click', closeSettingsModal);
     $('settingsModal').addEventListener('click', (e) => { if (e.target === $('settingsModal')) closeSettingsModal(); });
+  }
+  if ($('extPackList')) {
+    $('extPackList').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-ext-action]');
+      if (!btn) return;
+      if (btn.dataset.extAction === 'load') loadExtPack(btn.dataset.extId);
+      else if (btn.dataset.extAction === 'remove') removeExtPack(btn.dataset.extId);
+    });
   }
   if ($('copyBriefBtn')) {
     $('copyBriefBtn').addEventListener('click', () => {
@@ -5252,7 +5499,12 @@ async function init() {
     parseBackup,
     applyBackup,
     DB,
-    get stats() { return stats; }
+    get stats() { return stats; },
+    get extWords() { return extWords; },
+    get extStore() { return extStore; },
+    get extManifest() { return extManifest; },
+    loadExtPack,
+    removeExtPack
   };
 }
 

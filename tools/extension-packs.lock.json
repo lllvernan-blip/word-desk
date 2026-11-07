@@ -1,0 +1,20 @@
+{
+  "csv": "_vendor/ecdict.csv",
+  "sha256": "d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc",
+  "md5": "231b274d84f74a8ceca152c574678198",
+  "expectedPrefix": "d1ecbdf9ee2b920a",
+  "prefixMatch": true,
+  "rows": 770611,
+  "packVersion": "2026.11.07.1",
+  "verifiedAt": "2026-11-07",
+  "layers": {
+    "cet46": 3703,
+    "kaoyan": 2871,
+    "abroad": 6572,
+    "gre": 6465,
+    "tem8": 7158,
+    "phd": 10666
+  },
+  "note": "本文件是 Play B.5「sha 前缀校验有记录」的落盘记录；重新生成扩展包前先核对 sha256 前缀，不一致则拒绝生成。",
+  "verifyCommand": "python3 -c \"import hashlib;p='_vendor/ecdict.csv';h=hashlib.sha256();f=open(p,'rb');[h.update(c) for c in iter(lambda:f.read(1<<20),b'')];print(h.hexdigest())\""
+}

@@ -1,6 +1,17 @@
 .DS_Store
 **/.DS_Store
 *.log
+
+# 本地依赖与构建期素材，绝不入库
+_vendor/
+_archive/
+__pycache__/
+*.pyc
+.workbuddy/
+
+# 托管平台的项目配置，不进仓库
+*.qoder.site
+*.qoder.website
 output/pronunciation-ab/audio-ljspeech/
 output/pronunciation-ab/kokoro/
 output/pronunciation-ab/voices/
