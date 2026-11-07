@@ -914,7 +914,8 @@ let settings = {
   endpoint: '',
   report: false,
   listenRate: 1,
-  followRead: false
+  followRead: false,
+  haptic: true
 };
 let userWords = [];
 let remoteWords = [];
@@ -1109,6 +1110,8 @@ async function loadState() {
   settings.listenRate = Number(settings.listenRate) === 0.8 ? 0.8 : 1;
   // 跟读自评已下架：即使历史设置开着也强制关闭，避免触发麦克风
   settings.followRead = !!(settings.followRead && FEATURES.followRead);
+  // 缺省/旧备份无 haptic 字段时默认开；显式 false 才关
+  settings.haptic = settings.haptic !== false;
   if (kv.audioProbe && typeof kv.audioProbe === 'object') {
     VOICE.cachedProbe = kv.audioProbe;
     VOICE.status = kv.audioProbe.status || 'unknown';
@@ -1915,6 +1918,7 @@ function sanitizeBackupSettings(raw) {
   merged.listenRate = Number(merged.listenRate) === 0.8 ? 0.8 : 1;
   merged.followRead = false;
   merged.shuffle = merged.shuffle !== false;
+  merged.haptic = merged.haptic !== false;
   merged.report = !!merged.report;
   merged.endpoint = typeof merged.endpoint === 'string' ? merged.endpoint : '';
   merged.libMode = ['all', 'builtin', 'user'].includes(merged.libMode) ? merged.libMode : 'all';
@@ -3303,6 +3307,7 @@ function submitGuess() {
     card.guessSynonym = g.match || '';
   }
   track('practice_step', { word: card.word.word, stage: 'guess', correct: card.guessOk, ms: card.guessMs });
+  hapticFeedback(!!card.guessOk);
   advanceStage();
 }
 
@@ -3375,8 +3380,18 @@ function removeWrong(lower) {
   }
 }
 
+/* 练习反馈震动。Android Chromium 在用户手势后可用；iOS Safari/PWA 无 Vibration API，静默跳过。 */
+function hapticFeedback(ok) {
+  if (!settings.haptic) return;
+  try {
+    if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+    navigator.vibrate(ok ? 12 : [30, 40, 30]);
+  } catch (e) { /* 不支持或被拒：静默 */ }
+}
+
 function finishCard(card, correct, opts) {
   const o = opts || {};
+  hapticFeedback(!!correct);
   const now = Date.now();
   const key = card.word.lower;
   const existing = srsMap[key];
@@ -4143,6 +4158,7 @@ function syncSettingsUI() {
   $('countSelect').value = settings.count;
   $('dailyNewInput').value = settings.dailyNew;
   $('shuffleToggle').checked = !!settings.shuffle;
+  if ($('hapticToggle')) $('hapticToggle').checked = settings.haptic !== false;
   $('followReadToggle').checked = !!settings.followRead;
   // 跟读自评已下架：设置项隐藏，避免误触麦克风
   if ($('followReadItem')) $('followReadItem').hidden = !FEATURES.followRead;
@@ -4548,6 +4564,12 @@ function bindEvents() {
     syncSettingsUI();
   });
   $('shuffleToggle').addEventListener('change', (e) => { settings.shuffle = e.target.checked; saveSettings(); });
+  if ($('hapticToggle')) {
+    $('hapticToggle').addEventListener('change', (e) => {
+      settings.haptic = !!e.target.checked;
+      saveSettings();
+    });
+  }
   $('followReadToggle').addEventListener('change', (e) => {
     if (!FEATURES.followRead) { e.target.checked = false; return; }
     settings.followRead = !!e.target.checked;
