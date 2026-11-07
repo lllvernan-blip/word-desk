@@ -915,7 +915,9 @@ let settings = {
   report: false,
   listenRate: 1,
   followRead: false,
-  haptic: true
+  haptic: true,
+  includeSpell: true,
+  showExamples: false
 };
 let userWords = [];
 let remoteWords = [];
@@ -1112,6 +1114,11 @@ async function loadState() {
   settings.followRead = !!(settings.followRead && FEATURES.followRead);
   // 缺省/旧备份无 haptic 字段时默认开；显式 false 才关
   settings.haptic = settings.haptic !== false;
+  // 练习含拼写默认开；显式 false 才关。听音拼写依赖拼写，关拼写时回落英译中
+  settings.includeSpell = settings.includeSpell !== false;
+  // 情景例句默认关；仅开关持久化，词卡渲染本批不做
+  settings.showExamples = !!settings.showExamples;
+  if (settings.direction === 'listen' && !settings.includeSpell) settings.direction = 'en2zh';
   if (kv.audioProbe && typeof kv.audioProbe === 'object') {
     VOICE.cachedProbe = kv.audioProbe;
     VOICE.status = kv.audioProbe.status || 'unknown';
@@ -1407,11 +1414,16 @@ function planHasOfflineAudio() {
 function syncListenAvailability() {
   const btn = $('directionSeg') && $('directionSeg').querySelector('button[data-dir="listen"]');
   const note = $('directionNote');
-  const canListen = planHasOfflineAudio();
+  const spellOn = settings.includeSpell !== false;
+  const canListen = spellOn && planHasOfflineAudio();
   if (btn) btn.disabled = !canListen;
   if (note) {
     note.hidden = canListen;
-    if (!canListen) note.textContent = '当前队列没有可播放的离线发音，听音拼写不可用';
+    if (!canListen) {
+      note.textContent = !spellOn
+        ? '已关闭「练习含拼写」，听音拼写不可用'
+        : '当前队列没有可播放的离线发音，听音拼写不可用';
+    }
   }
   // 方向回退不在这里做：渲染只更新可用态，真正开始时按卡决定（见 startSession 的 makeCard 回落）
   // 状态可能刚被回退，重新同步方向按钮与答题方式可用性
@@ -1919,6 +1931,9 @@ function sanitizeBackupSettings(raw) {
   merged.followRead = false;
   merged.shuffle = merged.shuffle !== false;
   merged.haptic = merged.haptic !== false;
+  merged.includeSpell = merged.includeSpell !== false;
+  merged.showExamples = !!merged.showExamples;
+  if (merged.direction === 'listen' && !merged.includeSpell) merged.direction = 'en2zh';
   merged.report = !!merged.report;
   merged.endpoint = typeof merged.endpoint === 'string' ? merged.endpoint : '';
   merged.libMode = ['all', 'builtin', 'user'].includes(merged.libMode) ? merged.libMode : 'all';
@@ -2375,6 +2390,10 @@ function directionLabel(dir) { return DIR_LABELS[dir] || '英译中'; }
 function makeCard(w) {
   let dir = settings.direction;
   let audioGated = false;
+  // 听音拼写依赖拼写阶段：关闭「练习含拼写」时回落英译中（比藏按钮更小改动）
+  if (dir === 'listen' && settings.includeSpell === false) {
+    dir = 'en2zh';
+  }
   // 硬门槛：听音方向只给音频索引里真实存在的词，查不到的词降为文字练习并说明原因
   if (dir === 'listen' && !hasOfflineAudio(w)) {
     dir = 'en2zh';
@@ -2392,6 +2411,10 @@ function makeCard(w) {
     else steps = ['guess', 'reveal', 'recall']; // 低置信：拆解不可靠就不展示，猜义照常（学习强度一致）
   } else {
     steps = ['clue', 'guess', 'reveal', 'recall'];
+  }
+  // 关闭拼写：从步骤里去掉 recall（听音方向已在上方回落，不会走到 listen 步）
+  if (settings.includeSpell === false) {
+    steps = steps.filter((s) => s !== 'recall');
   }
   return demoteListenSteps({
     word: w,
@@ -2665,7 +2688,7 @@ function revealHTML(card) {
         ${affixRowsHTML(w)}
       </div>
       <div class="action-row">
-        <button class="btn primary" type="button" data-action="next-stage">${card.dir === 'listen' ? '看结果 →' : card.dir === 'en2zh' ? '开始拼写验证 →' : '再回忆一次 →'}</button>
+        <button class="btn primary" type="button" data-action="next-stage">${card.dir === 'listen' ? '看结果 →' : (!card.steps.includes('recall') ? '看结果 →' : card.dir === 'en2zh' ? '开始拼写验证 →' : '再回忆一次 →')}</button>
         <span class="spacer"></span>
         <span class="hint-line kbd-hint">Enter 继续</span>
       </div>
@@ -2770,8 +2793,8 @@ function resultHTML(card) {
           ? verdictHTML('skip', '≈', `意思对了，拼写差一点：你写的是 <strong>${esc(card.recallTyped || '')}</strong>，正确拼写 <strong>${esc(w.word)}</strong>。这次算难，拼写错误单独计数。`)
           : card.recallGrade === 'synonym'
             ? verdictHTML('good', '✓', `同义也算对：<strong>${esc(card.recallTyped || '')}</strong> 同样表示这个释义。这题的标准答案是 <strong>${esc(w.word)}</strong>，记不错。`)
-            : verdictHTML('good', '✓', `${card.dir === 'listen' ? '听写正确' : '拼写正确'}，本题记为 <strong>${card.rating === 2 ? '困难（答得太快，按困难记）' : card.rating === 4 ? '简单' : '不错'}</strong>。`)
-        : verdictHTML('bad', '×', `这次没${card.dir === 'listen' ? '听对' : '拼对'}。正确答案是 <strong>${esc(w.word)}</strong>，已自动加入错题本。`)}
+            : verdictHTML('good', '✓', `${card.dir === 'listen' ? '听写正确' : (card.steps.includes('recall') ? '拼写正确' : '答对了')}，本题记为 <strong>${card.rating === 2 ? '困难（答得太快，按困难记）' : card.rating === 4 ? '简单' : '不错'}</strong>。`)
+        : verdictHTML('bad', '×', `这次没${card.dir === 'listen' ? '听对' : (card.steps.includes('recall') ? '拼对' : '答对')}。正确答案是 <strong>${esc(w.word)}</strong>，已自动加入错题本。`)}
       <div class="reveal-box">
         <div class="word-display small">${wordDisplayHTML(w)}</div>
         <div class="word-tools"><button class="speak-btn" type="button" data-action="speak-word" aria-label="播放单词发音"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 6.2h2.2L8.5 3.4v9.2L5.2 9.8H3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M10.6 5.6a3 3 0 0 1 0 4.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>发音</span></button><button class="block-word-btn" type="button" data-action="block-word" aria-label="不再出现这个词" title="不再出现这个词">别出现</button></div>
@@ -3198,14 +3221,15 @@ function startSession(source, countOverride, opts) {
   stopSpeaking();
   releaseRecorder();
   lastAudioKey = '';
-  const wantListen = settings.direction === 'listen';
+  const wantListen = settings.direction === 'listen' && settings.includeSpell !== false;
   const listenable = wantListen && words.some(hasOfflineAudio);
-  if (wantListen && !listenable) toast('当前队列没有可播放的离线发音，已改为英译中');
+  if (settings.direction === 'listen' && settings.includeSpell === false) toast('已关闭拼写：听音拼写改为英译中');
+  else if (wantListen && !listenable) toast('当前队列没有可播放的离线发音，已改为英译中');
   session = {
     source,
     drillRoot: o.drillRoot || '',
     countMode: count,
-    direction: listenable ? 'listen' : (wantListen ? 'en2zh' : settings.direction),
+    direction: listenable ? 'listen' : (settings.direction === 'listen' ? 'en2zh' : settings.direction),
     filtersSnapshot: snapshotFilters(),
     queue: words.map(makeCard),
     index: 0,
@@ -3269,6 +3293,12 @@ function advanceStage() {
   const stage = cardStage(card);
   // 听音卡在提交时已写入 FSRS，但仍要先核对答案，再进结果页
   if (card.result != null && stage !== 'reveal') return;
+  // 关闭拼写后 steps 无 recall/listen：核对页之后按猜义结果直接收尾，避免空结果页不写 FSRS
+  if (stage === 'reveal' && card.result == null
+      && !card.steps.includes('recall') && !card.steps.includes('listen')) {
+    finishCard(card, card.guessOk === true, { grade: card.guessGrade || '' });
+    return;
+  }
   card.step = Math.min(card.steps.length, card.step + 1);
   card.stageShownAt = Date.now();
   if (cardStage(card) === 'guess') card.guessShownAt = Date.now();
@@ -4159,6 +4189,8 @@ function syncSettingsUI() {
   $('dailyNewInput').value = settings.dailyNew;
   $('shuffleToggle').checked = !!settings.shuffle;
   if ($('hapticToggle')) $('hapticToggle').checked = settings.haptic !== false;
+  if ($('includeSpellToggle')) $('includeSpellToggle').checked = settings.includeSpell !== false;
+  if ($('showExamplesToggle')) $('showExamplesToggle').checked = !!settings.showExamples;
   $('followReadToggle').checked = !!settings.followRead;
   // 跟读自评已下架：设置项隐藏，避免误触麦克风
   if ($('followReadItem')) $('followReadItem').hidden = !FEATURES.followRead;
@@ -4521,6 +4553,10 @@ function bindEvents() {
   $('directionSeg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-dir]');
     if (!b) return;
+    if (b.dataset.dir === 'listen' && settings.includeSpell === false) {
+      toast('请先开启「练习含拼写」');
+      return;
+    }
     if (b.dataset.dir === 'listen' && !planHasOfflineAudio()) {
       toast('当前队列没有可播放的离线发音，听音拼写不可用');
       return;
@@ -4567,6 +4603,24 @@ function bindEvents() {
   if ($('hapticToggle')) {
     $('hapticToggle').addEventListener('change', (e) => {
       settings.haptic = !!e.target.checked;
+      saveSettings();
+    });
+  }
+  if ($('includeSpellToggle')) {
+    $('includeSpellToggle').addEventListener('change', (e) => {
+      settings.includeSpell = !!e.target.checked;
+      if (!settings.includeSpell && settings.direction === 'listen') {
+        settings.direction = 'en2zh';
+        toast('已关闭拼写：听音拼写回落为英译中');
+      }
+      saveSettings();
+      syncSettingsUI();
+      syncListenAvailability();
+    });
+  }
+  if ($('showExamplesToggle')) {
+    $('showExamplesToggle').addEventListener('change', (e) => {
+      settings.showExamples = !!e.target.checked;
       saveSettings();
     });
   }
@@ -4785,8 +4839,10 @@ function bindEvents() {
   }
 
   /* 练习设置弹窗：设置本来就是即时生效，弹窗只当容器 */
-  if ($('settingsOpenBtn')) {
-    $('settingsOpenBtn').addEventListener('click', () => { $('settingsModal').hidden = false; refreshAudioCacheStat(); });
+  const openSettingsModal = () => { $('settingsModal').hidden = false; refreshAudioCacheStat(); };
+  if ($('settingsOpenBtn')) $('settingsOpenBtn').addEventListener('click', openSettingsModal);
+  if ($('settingsGearBtn')) $('settingsGearBtn').addEventListener('click', openSettingsModal);
+  if ($('settingsOpenBtn') || $('settingsGearBtn')) {
     const closeSettingsModal = () => { $('settingsModal').hidden = true; };
     $('settingsModalDone').addEventListener('click', closeSettingsModal);
     $('closeSettingsModal').addEventListener('click', closeSettingsModal);
