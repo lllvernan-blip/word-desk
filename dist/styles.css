@@ -2478,6 +2478,13 @@ html.edge-near::-webkit-scrollbar-thumb:hover { background-color: color-mix(in s
   text-underline-offset: 2px;
 }
 
+/* 手机端底部有 tabbar：提示条与更新条要抬到底栏之上，不能压在导航上。
+   专注态 body.is-session 没有底栏，保持原始 bottom 值。 */
+@media (max-width: 920px) {
+  body:not(.is-session) .toast { bottom: calc(72px + env(safe-area-inset-bottom)); }
+  body:not(.is-session) .update-bar { bottom: calc(64px + env(safe-area-inset-bottom)); }
+}
+
 .plan-first-hint {
   display: block;
   margin-top: 8px;
