@@ -14,7 +14,9 @@ index.json：旧词条偏移原样保留，v 递增（AGENTS.md：index.json 的
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIO_DIR = os.path.join(ROOT, "dist", "audio")
@@ -41,6 +43,8 @@ def main():
     ap.add_argument("--per-pack", type=int, default=200)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    if args.per_pack <= 0:
+        sys.exit("--per-pack 必须是正整数")
 
     index_path = os.path.join(AUDIO_DIR, INDEX_NAME)
     if not os.path.isfile(index_path):
@@ -64,46 +68,58 @@ def main():
     new_words = {}
     new_packs = []
     total = 0
-    for start in range(0, len(fresh), args.per_pack):
-        chunk = fresh[start:start + args.per_pack]
-        pack_name = "pack-%02d.bin" % len(packs)
-        offset = 0
-        if not args.dry_run:
-            with open(os.path.join(AUDIO_DIR, pack_name), "wb") as out:
+    next_pack = len(packs)
+    tmp_dir = None if args.dry_run else tempfile.mkdtemp(prefix=".merge-", dir=AUDIO_DIR)
+    try:
+        for start in range(0, len(fresh), args.per_pack):
+            chunk = fresh[start:start + args.per_pack]
+            pack_name = "pack-%02d.bin" % next_pack
+            offset = 0
+            if not args.dry_run:
+                with open(os.path.join(tmp_dir, pack_name), "wb") as out:
+                    for word, path in chunk:
+                        with open(path, "rb") as f:
+                            data = f.read()
+                        if not data:
+                            raise ValueError("音频为空: %s" % path)
+                        out.write(data)
+                        new_words[word] = [next_pack, offset, len(data)]
+                        offset += len(data)
+                        total += len(data)
+            else:
                 for word, path in chunk:
-                    with open(path, "rb") as f:
-                        data = f.read()
-                    out.write(data)
-                    new_words[word] = [len(packs), offset, len(data)]
-                    offset += len(data)
-                    total += len(data)
-        else:
-            for word, path in chunk:
-                size = os.path.getsize(path)
-                new_words[word] = [len(packs), 0, size]
-                total += size
-        if not args.dry_run:
-            packs.append(pack_name)
-        else:
+                    size = os.path.getsize(path)
+                    new_words[word] = [next_pack, offset, size]
+                    offset += size
+                    total += size
             new_packs.append(pack_name)
-        print("  %s %4d 词" % (pack_name, len(chunk)))
+            next_pack += 1
+            print("  %s %4d 词" % (pack_name, len(chunk)))
 
-    new_v = old_v + 1
-    index["v"] = new_v
-    index["packs"] = packs
-    index["words"] = words
-    index["words"].update(new_words)
+        new_index = dict(index)
+        new_index["v"] = old_v + 1
+        new_index["packs"] = packs + new_packs
+        new_index["words"] = dict(words)
+        new_index["words"].update(new_words)
 
-    if args.dry_run:
-        print("dry-run：v %d -> %d，将新增 %d 词 / %s 个分片，音频 %.1f MB"
-              % (old_v, new_v, len(new_words), len(new_packs), total / 1024 / 1024))
-        return
+        if args.dry_run:
+            print("dry-run：v %d -> %d，将新增 %d 词 / %s 个分片，音频 %.1f MB"
+                  % (old_v, new_index["v"], len(new_words), len(new_packs), total / 1024 / 1024))
+            return
 
-    with open(index_path, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
-    print("已写入：v %d -> %d，%d 词，%d 分片；新增音频 %.1f MB，索引 %.0f KB"
-          % (old_v, new_v, len(index["words"]), len(packs), total / 1024 / 1024,
-             os.path.getsize(index_path) / 1024))
+        # 新分片用未被旧索引引用的新编号，先落地再原子替换索引；中途失败旧索引仍可用。
+        for name in new_packs:
+            os.replace(os.path.join(tmp_dir, name), os.path.join(AUDIO_DIR, name))
+        tmp_index = os.path.join(tmp_dir, INDEX_NAME)
+        with open(tmp_index, "w", encoding="utf-8") as f:
+            json.dump(new_index, f, ensure_ascii=False, separators=(",", ":"))
+        os.replace(tmp_index, index_path)
+        print("已写入：v %d -> %d，%d 词，%d 分片；新增音频 %.1f MB，索引 %.0f KB"
+              % (old_v, new_index["v"], len(new_index["words"]), len(new_index["packs"]),
+                 total / 1024 / 1024, os.path.getsize(index_path) / 1024))
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

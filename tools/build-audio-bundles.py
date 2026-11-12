@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIO_DIR = os.path.join(ROOT, "dist", "audio")
@@ -39,7 +40,19 @@ def scan_sources(audio_dir):
     return rows
 
 
+def read_old_index():
+    path = os.path.join(AUDIO_DIR, INDEX_NAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+        return old if isinstance(old, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def build(per_pack, keep_source):
+    if per_pack <= 0:
+        sys.exit("--per-pack 必须是正整数")
     if not os.path.isdir(AUDIO_DIR):
         sys.exit("找不到目录: %s" % AUDIO_DIR)
 
@@ -47,34 +60,59 @@ def build(per_pack, keep_source):
     if not sources:
         sys.exit("dist/audio 下没有可打包的 mp3。若是重复执行，请先确认 index.json 已生成。")
 
-    words = {}
-    packs = []
-    total_bytes = 0
+    old_index = read_old_index()
+    old_count = len((old_index or {}).get("words") or {})
+    if old_count > len(sources):
+        print("注意：本次只有 %d 个源词，少于现有索引的 %d 个词；重建后音频覆盖会缩小。"
+              % (len(sources), old_count))
+        print("      如需保留扩展词音频，请改用 tools/merge-audio-packs.py。")
 
-    for start in range(0, len(sources), per_pack):
-        chunk = sources[start:start + per_pack]
-        pack_name = "pack-%02d.bin" % len(packs)
-        pack_path = os.path.join(AUDIO_DIR, pack_name)
-        offset = 0
-        with open(pack_path, "wb") as out:
-            for word, path in chunk:
-                with open(path, "rb") as f:
-                    data = f.read()
-                out.write(data)
-                words[word] = [len(packs), offset, len(data)]
-                offset += len(data)
-                total_bytes += len(data)
-        packs.append(pack_name)
-        print("  %-12s %4d 词  %7.1f KB" % (pack_name, len(chunk), offset / 1024))
+    # 先在同目录临时目录写完所有分片与索引，成功后再替换；中途失败不动旧包。
+    tmp_dir = tempfile.mkdtemp(prefix=".build-", dir=AUDIO_DIR)
+    try:
+        words = {}
+        packs = []
+        total_bytes = 0
 
-    index = {"v": 1, "packs": packs, "words": words}
-    index_path = os.path.join(AUDIO_DIR, INDEX_NAME)
-    with open(index_path, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+        for start in range(0, len(sources), per_pack):
+            chunk = sources[start:start + per_pack]
+            pack_name = "pack-%02d.bin" % len(packs)
+            pack_path = os.path.join(tmp_dir, pack_name)
+            offset = 0
+            with open(pack_path, "wb") as out:
+                for word, path in chunk:
+                    with open(path, "rb") as f:
+                        data = f.read()
+                    if not data:
+                        raise ValueError("音频为空: %s" % path)
+                    out.write(data)
+                    words[word] = [len(packs), offset, len(data)]
+                    offset += len(data)
+                    total_bytes += len(data)
+            packs.append(pack_name)
+            print("  %-12s %4d 词  %7.1f KB" % (pack_name, len(chunk), offset / 1024))
+
+        new_v = int((old_index or {}).get("v") or 0) + 1
+        index = {"v": new_v, "packs": packs, "words": words}
+        tmp_index = os.path.join(tmp_dir, INDEX_NAME)
+        with open(tmp_index, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+
+        # 先把新分片就位，再原子替换索引；旧索引只会短暂指向同名的完整新分片。
+        for name in packs:
+            os.replace(os.path.join(tmp_dir, name), os.path.join(AUDIO_DIR, name))
+        for name in os.listdir(AUDIO_DIR):
+            if name.startswith("pack-") and name.endswith(".bin") and name not in packs:
+                os.remove(os.path.join(AUDIO_DIR, name))
+        os.replace(tmp_index, os.path.join(AUDIO_DIR, INDEX_NAME))
+        index_path = os.path.join(AUDIO_DIR, INDEX_NAME)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     print("\n词条 %d，分片 %d，音频合计 %.1f MB，索引 %.0f KB"
           % (len(words), len(packs), total_bytes / 1024 / 1024,
              os.path.getsize(index_path) / 1024))
+    print("音频缓存版本 index.v = %d（客户端会自动清掉旧版本词缓存）" % new_v)
 
     if not keep_source:
         removed = 0
