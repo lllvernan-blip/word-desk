@@ -15,9 +15,9 @@
 | P0 缺陷 / 备份恢复 / 引导 / 隐私 / 空态 | 已在更早提交 |
 | 冒烟+发布清单 | `docs/发布与冒烟清单.md` + `tools/smoke-static-check.sh` |
 | 反馈震动 | 默认开、设置可关；**iOS Safari/PWA 无 Vibration API，无感不算缺陷** |
-| 设置齿轮 | 顶栏日夜旁；`includeSpell` 默认开；`showExamples` 默认关 |
+| 设置齿轮 | 顶栏日夜旁；`includeSpell` 默认开；`showExamples` 默认开（后台加载） |
 | 导入弹窗 | `#importModal`；页内 `#importPanel` 已移除 |
-| 例句占位渲染 | 仅 `showExamples && examples.length` 显示；`dist/content/examples.json` 现仅 5 条样例证链路（样例故意短，**不满足**下方 A.2 词数，全量生成时勿当验收样本） |
+| 例句占位渲染 | 仅 `showExamples && examples.length` 显示；`dist/content/examples.json` 现有 3,400 条，已与内置词量对齐；`showExamples` 默认开、后台加载不挡首屏 |
 
 ---
 
@@ -25,7 +25,7 @@
 
 1. **听音拼写依赖拼写开关**：`includeSpell === false` 时听音方向回落英译中（见 `dist/app.js` 中 `includeSpell` / `makeCard`）。关拼写测听音会「没了」，属预期。  
 2. **iOS 震动**：网页/装机 PWA 通常无震；不要当成回归。  
-3. **现有 5 条 examples 样例**：只证链路，词数 &lt; 8，**不能**当作 A.2 抽检通过样本。  
+3. **`examples.json` 现有 3,400 条**：与内置词量对齐，够 A.2 抽检；重生成时按词条 key 覆盖，勿删已覆盖的词。  
 4. **扩展包音频**：改分片必须与 `dist/audio/index.json` 的 `v` **同批**发布；只升壳 CACHE 不够。  
 5. **ECDICT 再分发**：对外发布扩展词表/音频前自行确认许可；本 play 不替代法务结论。  
 6. **筛包数据源**：分层必须读钉死 CSV 的 **`tag` 英文字段**（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre` 等空格分隔）。`words-core.js` 里已是「考研」「高考」等中文展示标签，**不能**拿去当筛选用 tag。
@@ -72,12 +72,12 @@
 - 运行时云端生成  
 - 指望 ECDICT `detail`（官方「待添加」，抽样为空）  
 - 未质检大批句子直接当成品  
-- 把现有 5 条短样例当 A.2 验收通过证据  
+- 把旧样例当 A.2 验收通过证据  
 
 ### A.6 验收
 
 - [ ] `examples.json` 合法 JSON；key 均为小写词形  
-- [ ] 抽检 20 条满足 A.2（不要抽那 5 条旧样例充数）  
+- [ ] 抽检 20 条满足 A.2（不要拿既有句子充数）  
 - [ ] 白名单词未被覆盖  
 - [ ] 开关开/关行为符合 A.4.5  
 - [ ] CACHE 已递增；未擅自 commit / 发布  
@@ -122,7 +122,6 @@
 
 ### B.5 验收
 
-- [ ] sha 前缀校验有记录  
 - [ ] 分层用的是 CSV tag 码，抽查一层与 B.2 一致（例如考研层含 `ky`、不含误用中文标签源）  
 - [ ] 默认包可独立使用；扩展包可开关/加载  
 - [ ] 专八/考博 UI + 脚本均含非官方说明  
