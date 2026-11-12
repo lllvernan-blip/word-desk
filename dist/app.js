@@ -10,7 +10,7 @@ const CONFIG = {
   contentUrl: './content/manifest.json',
   pageSize: 24,
   maxEvents: 1200,
-  version: '2026.11.12.3',
+  version: '2026.11.12.4',
   /* 「不需要」上报端点：留空 = 不发任何请求（默认）。
      拿到 webhook 后把地址填在这里即可生效，无需改其它代码。 */
   markReportUrl: ''
@@ -1179,19 +1179,24 @@ async function flushKV() {
   clearTimeout(kvTimer);
   kvTimer = null;
   const keys = Object.keys(pendingKV);
-  if (!keys.length) return flushPendingSrs();
-  const batch = {};
-  keys.forEach((k) => { batch[k] = pendingKV[k]; delete pendingKV[k]; });
-  try {
-    for (const k of keys) await DB.put('kv', { key: k, value: batch[k] });
-    return true;
-  } catch (e) {
-    // 没写进去的键退回待写队列，下次保存或切后台时再试，不能当成功丢掉
-    keys.forEach((k) => { if (!(k in pendingKV)) pendingKV[k] = batch[k]; });
-    toastSaveFail();
-    return false;
+  let kvOk = true;
+  if (keys.length) {
+    const batch = {};
+    keys.forEach((k) => { batch[k] = pendingKV[k]; delete pendingKV[k]; });
+    try {
+      for (const k of keys) await DB.put('kv', { key: k, value: batch[k] });
+    } catch (e) {
+      // 没写进去的键退回待写队列，下次保存或切后台时再试，不能当成功丢掉
+      keys.forEach((k) => { if (!(k in pendingKV)) pendingKV[k] = batch[k]; });
+      toastSaveFail();
+      kvOk = false;
+    }
   }
-  return flushPendingSrs();
+  // 无论 kv 队列是否为空，答题主路径上都要顺手把上次写失败的 SRS 补写一遍；
+  // 之前这句写在 try/catch return 之后是死代码，补写从不真正执行
+  const srsOk = await flushPendingSrs();
+  if (!srsOk) toastSaveFail();
+  return kvOk && srsOk;
 }
 /* 把上次没写进去的 SRS 记录补写一遍；仍失败的留在队列里等下一次 */
 async function flushPendingSrs() {
@@ -2548,11 +2553,29 @@ async function flushAnalytics() {
       body: JSON.stringify({ app: 'word-translation-practice', version: CONFIG.version, events: batch })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    let written = 0;
     for (const e of batch) {
+      // 先打 sentAt 再落库：IDB put 是结构化克隆，写的是调用那一刻的快照，
+      // 必须让 sentAt 随记录一起进库，否则 loadState() 读回时这批事件没有 sentAt，
+      // 下次开应用又会被 filter(!e.sentAt) 当成待上报无限重发。
       e.sentAt = Date.now();
-      try { await DB.put('events', e); } catch (err) { toastSaveFail(); break; }
+      try {
+        await DB.put('events', e);
+      } catch (err) {
+        // 没写进去就撤掉标记，连同 break 后剩余条目一起留在待上报集合里下次重试
+        delete e.sentAt;
+        toastSaveFail();
+        break;
+      }
+      written++;
     }
-    toast(`已上报 ${batch.length} 条事件`);
+    if (written === batch.length) {
+      toast(`已上报 ${written} 条事件`);
+    } else if (written > 0) {
+      toast(`已上报 ${written} 条，其余 ${batch.length - written} 条未落盘，下次会重试`);
+    } else {
+      toast('上报记录未落盘，下次会重试');
+    }
   } catch (e) {
     toast('上报失败，事件仍保留在本机');
   }
@@ -4382,7 +4405,12 @@ async function handleWordForm(event) {
 async function deleteUserWord(word) {
   if (!window.confirm(`确定删除「${word}」吗？`)) return;
   const lower = word.toLowerCase();
-  await DB.del('userWords', lower);
+  try {
+    await DB.del('userWords', lower);
+  } catch (e) {
+    toast('删除失败，请重试');
+    return;
+  }
   userWords = userWords.filter((x) => x.lower !== lower);
   invalidateLib();
   renderAll();
@@ -4392,7 +4420,12 @@ async function deleteUserWord(word) {
 async function clearUserWords() {
   if (!userWords.length) { toast('我的词库已经是空的'); return; }
   if (!window.confirm(`确定清空 ${userWords.length} 条自建词条吗？内置词库不受影响。`)) return;
-  await DB.clear('userWords');
+  try {
+    await DB.clear('userWords');
+  } catch (e) {
+    toast('清空失败，请重试');
+    return;
+  }
   userWords = [];
   invalidateLib();
   renderAll();
