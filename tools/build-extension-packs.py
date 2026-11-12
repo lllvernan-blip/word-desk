@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXPECTED_PREFIX = "d1ecbdf9ee2b920a"
@@ -129,6 +130,18 @@ def verify_csv(path):
     return ok
 
 
+
+def write_json(path, data, indent=None):
+    """先写同目录临时文件再原子替换，避免序列化/磁盘错误留下半截 JSON。"""
+    fd, tmp = tempfile.mkstemp(prefix=".ext-", suffix=".json", dir=os.path.dirname(path) or ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent, separators=None if indent else (",", ":"))
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True, help="钉死版 ecdict.csv 路径")
@@ -201,16 +214,14 @@ def main():
             "words": words,
         }
         path = os.path.join(out_dir, "%s.json" % lid)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        write_json(path, data)
         flag = "官方" if official else "非官方大纲"
         print("%-8s %-12s %5d 词  %7.1f KB  [%s]" % (lid, name, len(words), os.path.getsize(path) / 1024, flag))
         packs.append({"id": lid, "name": name, "official": official,
                       "count": len(words), "url": "./content/extension/%s.json" % lid})
 
     manifest = {"v": PACK_VERSION, "updatedAt": "2026-11-07T00:00:00Z", "packs": packs}
-    with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    write_json(os.path.join(out_dir, "manifest.json"), manifest, indent=2)
     print("已生成 manifest.json；共读 CSV %d 行" % n_rows)
 
 

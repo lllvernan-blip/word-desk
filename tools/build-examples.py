@@ -136,7 +136,9 @@ def iter_candidates(args):
 
 def subprocess_tsv(cmd):
     import subprocess
-    out = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, check=False)
+    out = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if out.returncode != 0:
+        raise RuntimeError("例句生成器退出码 %d：%s" % (out.returncode, out.stderr.decode("utf-8", "replace")[:300]))
     yield from read_jsonl(out.stdout.decode("utf-8", "replace").splitlines())
 
 
@@ -183,7 +185,7 @@ def main():
         ap.error("需要 --input 或 --gen-cmd（或 --emit-words）")
 
     # 仅 --gen-cmd 需要把词表落到盘上；从 jsonl 合并时不要覆盖候选目录里的词表
-    args._words_tsv = os.path.join("tools", "examples-candidates", "_words-for-gen.tsv")
+    args._words_tsv = os.path.join("tools", "examples-candidates", "_words-for-gen-%d.tsv" % os.getpid())
     if args.gen_cmd:
         os.makedirs(os.path.dirname(args._words_tsv), exist_ok=True)
         with open(args._words_tsv, "w", encoding="utf-8") as f:
@@ -200,6 +202,17 @@ def main():
     if args.keep and os.path.isfile(args.keep):
         with open(args.keep, encoding="utf-8") as f:
             keep = json.load(f)
+    # 白名单是人工精品，但仍要符合同一套硬过滤，避免坏值绕过
+    valid_keep = {}
+    for w, vals in (keep.items() if isinstance(keep, dict) else []):
+        if not isinstance(w, str) or not isinstance(vals, list):
+            continue
+        good = [s for s in vals if isinstance(s, str) and check_sentence(w, s) is None]
+        if good:
+            valid_keep[w] = good
+        else:
+            print("  白名单条目无效，已忽略:", w)
+    keep = valid_keep
 
     passed = {}       # word -> sentence
     fail_reasons = {}
@@ -254,12 +267,19 @@ def main():
           % (replaced, kept_old, whitelist_kept, dropped_old, out_of_scope))
     bad = [k for k, v in result.items() if not isinstance(v, list) or not v]
     if bad:
-        print("!! 发现空值/坏值 key：", bad[:10])
+        sys.exit("发现空值/坏值 key，拒绝写入：%s" % ", ".join(bad[:10]))
     if args.dry_run:
         print("dry-run：未写入 %s" % out_path)
         return
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    import tempfile
+    fd, tmp_path = tempfile.mkstemp(prefix=".examples-", suffix=".json", dir=os.path.dirname(out_path) or ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        os.replace(tmp_path, out_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
     print("已写入 %s（%d 词，%d 字节）" % (out_path, len(result), os.path.getsize(out_path)))
 
 

@@ -1,17 +1,35 @@
 .DS_Store
 **/.DS_Store
 *.log
+logs/
 
 # 本地依赖与构建期素材，绝不入库
 _vendor/
 _archive/
+.piper-model/
+tools/audio-candidates/
 __pycache__/
 *.pyc
 .workbuddy/
 
-# 托管平台的项目配置，不进仓库
+# IDE / AI 助手的工作记忆与配置
+.trae/
+.qoder*
 *.qoder.site
 *.qoder.website
+.idea/
+.vscode/
+
+# 临时脚本与本地数据
+*.tmp
+*.bak
+*.swp
+
+# 例句/音频生成过程的中间件，可重新生成，不入库
+tools/examples-candidates/
+tools/audio-candidates-words.txt
+
+# 托管平台的项目配置，不进仓库
 output/pronunciation-ab/audio-ljspeech/
 output/pronunciation-ab/kokoro/
 output/pronunciation-ab/voices/

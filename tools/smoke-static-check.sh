@@ -54,18 +54,30 @@ else
   bad "缺少 dist/content/sensitive.json"
 fi
 
-# 8) audio index vs packs（不写死分片数，只查一致性：v 存在、meta 与实际 bin 数一致、词条偏移不越界）
+# 8) audio index vs packs（版本、文件名、偏移边界、长度都要能对上真实字节）
 if [ -f dist/audio/index.json ]; then
   EVAL=$(python3 - <<'PY'
-import json, glob
+import json, glob, os
 idx=json.load(open("dist/audio/index.json"))
 v=idx.get("v")
 packs=idx.get("packs") or []
-bins=sorted(glob.glob("dist/audio/pack-*.bin"))
+bins=sorted(os.path.basename(p) for p in glob.glob("dist/audio/pack-*.bin"))
 words=idx.get("words") or {}
-overflow=sum(1 for e in words.values() if not isinstance(e, list) or len(e)!=3 or not (0 <= e[0] < len(packs)))
-ok = (v is not None) and (len(packs)==len(bins)) and overflow==0 and len(words)>0
-print(f"v={v}; packs_meta={len(packs)}; bins={len(bins)}; words={len(words)}; overflow={overflow}; ok={ok}")
+errs=[]
+if not isinstance(v, int) or isinstance(v, bool) or v <= 0: errs.append("bad-version")
+if bins != sorted(packs): errs.append("pack-list-mismatch")
+sizes={p:os.path.getsize(os.path.join("dist/audio",p)) for p in bins}
+for word,e in words.items():
+    if not isinstance(e,list) or len(e)!=3 or any(not isinstance(x,int) or isinstance(x,bool) for x in e):
+        errs.append("bad-slot"); break
+    pi,off,length=e
+    if pi < 0 or pi >= len(packs) or off < 0 or length <= 0:
+        errs.append("bad-slot"); break
+    size=sizes.get(packs[pi])
+    if size is None or off+length > size:
+        errs.append("out-of-range"); break
+ok = not errs and len(words)>0
+print(f"v={v}; packs_meta={len(packs)}; bins={len(bins)}; words={len(words)}; errors={','.join(errs) or 'none'}; ok={ok}")
 PY
 )
   if echo "$EVAL" | grep -q 'ok=True'; then ok "audio index 与分片: $EVAL"; else bad "audio index 与分片不一致: $EVAL"; fi
@@ -87,15 +99,29 @@ ok=True; msg=[]
 try:
     ex=json.load(open("dist/content/examples.json"))
     msg.append(f"examples={len(ex)}")
-    ok = ok and len(ex)>0 and all(isinstance(v,list) and v for v in ex.values())
-except Exception as e:
+    if not ex or not all(isinstance(v,list) and v and all(isinstance(s,str) and s.strip() for s in v) for v in ex.values()):
+        ok=False; msg.append("examples-bad")
+except Exception:
     ok=False; msg.append("examples-bad")
 try:
     man=json.load(open("dist/content/extension/manifest.json"))
-    msg.append(f"extpacks={len(man.get('packs') or [])}")
-    for p in man.get("packs") or []:
+    packs=man.get("packs") or []
+    msg.append(f"extpacks={len(packs)}")
+    expected={"cet46","kaoyan","abroad","gre","tem8","phd"}
+    ids={p.get("id") for p in packs}
+    if ids != expected or len(packs) != 6: ok=False; msg.append("ext-ids")
+    for p in packs:
         d=json.load(open(os.path.join("dist/content/extension", p["id"]+".json")))
-        if d.get("count")!=len(d.get("words") or []): ok=False; msg.append(p["id"]+"-count-mismatch")
+        words=d.get("words") or []
+        if d.get("count")!=len(words) or d.get("v")!=man.get("v") or not words:
+            ok=False; msg.append(p["id"]+"-metadata")
+        keys=set()
+        for w in words:
+            if not isinstance(w,dict) or not w.get("word") or not (w.get("meaning") or w.get("meanings")):
+                ok=False; msg.append(p["id"]+"-word"); break
+            k=w["word"].lower()
+            if k in keys: ok=False; msg.append(p["id"]+"-duplicate"); break
+            keys.add(k)
 except Exception:
     ok=False; msg.append("extpacks-bad")
 print("; ".join(msg)+f"; ok={ok}")

@@ -628,8 +628,10 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 
 .word-display.small { font-size: clamp(1.8rem, 5vw, 2.4rem); }
 
-/* 发音按钮：贴着词头的小胶囊，不抢视觉重心 */
-.word-tools { margin: 4px 0 2px; }
+/* 发音按钮：贴着词头的小胶囊，不抢视觉重心。
+   两个按钮行高不同（19.2px vs 12px），块容器里按基线排会错开约 2.5px，
+   用 flex 垂直居中；8px 间距补上没有空白文本节点后的间隔 */
+.word-tools { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; }
 .speak-btn {
   display: inline-flex;
   align-items: center;
@@ -1000,7 +1002,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 .chip.active.root { background: var(--brand-soft); border-color: var(--brand-line); color: var(--brand); }
 .chip.active .n, .chip.active .rz { color: inherit; }
 
-.chip.more { font-family: var(--font-ui); color: var(--brand); border-style: dashed; }
 .chip .x { font-size: 13px; line-height: 1; margin-left: 1px; }
 
 .filter-count {
@@ -1097,30 +1098,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 .load-more { display: flex; justify-content: center; padding: 18px 0 4px; }
 
 /* 导入面板 */
-.import-panel {
-  margin-top: 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--sheet-2);
-}
-
-.import-panel > summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  list-style: none;
-  cursor: pointer;
-  padding: 13px 18px;
-  font-size: 13.5px;
-  font-weight: 550;
-  color: var(--ink-2);
-  user-select: none;
-}
-
-.import-panel > summary::-webkit-details-marker { display: none; }
-.import-panel > summary::before { content: '▸'; color: var(--faint); transition: transform .18s ease; }
-.import-panel[open] > summary::before { transform: rotate(90deg); }
-
 .import-body {
   display: flex;
   flex-direction: column;
@@ -1146,6 +1123,20 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 .dz-icon { font-size: 22px; color: var(--brand); }
 .dz-title { font-size: 14px; font-weight: 600; }
 .dz-sub { font-size: 12.5px; color: var(--muted); max-width: 460px; }
+
+/* 屏幕阅读器/键盘可达的隐藏控件：不能用 hidden，否则 Tab 不到 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
 
 .import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -1174,8 +1165,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   border-radius: 4px;
   padding: 0 4px;
 }
-
-.cols { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 .import-ok {
   padding: 11px 14px;
@@ -1442,18 +1431,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   border-top: 1px solid var(--line);
 }
 
-.init-error {
-  position: fixed;
-  inset: auto 16px 16px;
-  z-index: 99;
-  padding: 14px 18px;
-  background: var(--bad-soft);
-  border: 1px solid var(--bad-line);
-  color: var(--bad);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-}
-
 /* ---------- 12. 移动端标签栏 ---------- */
 .tabbar {
   position: fixed;
@@ -1503,11 +1480,7 @@ body.is-session .view-practice { max-width: 780px; }
   .brand-sub { display: none; }
   .status-text { display: none; }
   .views { padding: 20px 16px calc(96px + env(safe-area-inset-bottom)); }
-  .today-sheet, .train-sheet, .library-sheet, .data-sheet, .wrong-sheet { padding: 24px 20px; }
-  .today-sheet { padding-top: 28px; }
-  .today-body { min-height: 120px; }
-  .setup-grid { grid-template-columns: 1fr; }
-  .setup-field.span-2 { grid-column: auto; }
+  .train-sheet, .library-sheet, .data-sheet, .wrong-sheet { padding: 24px 20px; }
   .stats-grid { grid-template-columns: 1fr; }
   .help-grid { grid-template-columns: 1fr; }
   .modal .form-grid { grid-template-columns: 1fr; }
@@ -2046,31 +2019,11 @@ body.is-session .view-practice { max-width: 780px; }
 .listen-fallback .letter-hint { font-family: var(--font-mono); font-size: 15px; letter-spacing: 2px; color: var(--ink); }
 .listen-fallback .hint { font-size: 12px; color: var(--muted); }
 
-.follow-read {
-  margin: 18px 0 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--sheet);
-}
-.follow-read summary {
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px 16px; cursor: pointer;
-  font-size: 14px; color: var(--ink-2);
-  list-style: none;
-}
-.follow-read summary::-webkit-details-marker { display: none; }
-.follow-read[open] summary { border-bottom: 1px solid var(--line); }
-.follow-read-body { padding: 12px 16px 16px; }
-.fr-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-.fr-status { font-size: 12.5px; color: var(--muted); }
-.fr-audio { width: 100%; height: 38px; margin-top: 12px; }
-
 @media (max-width: 640px) {
   .listen-player { gap: 10px; }
   .listen-play { flex: 1 1 100%; }
   .listen-rate { width: 100%; margin-left: 0; }
   .seg.listen-rate button { flex: 1; justify-content: center; }
-  .fr-actions .btn { flex: 1 1 auto; }
   .listen-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .listen-actions .btn { white-space: nowrap; }
   .listen-actions .btn.primary { grid-column: 1 / -1; }
@@ -2272,9 +2225,10 @@ html.edge-near::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, v
   .footer { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 
-/* 发音按钮在触屏上抬到 36px 命中区 */
+/* 发音按钮在触屏上抬到 36px 命中区；同排的「别出现」跟上，避免一高一矮 */
 @media (max-width: 640px) {
   .speak-btn { min-height: 36px; padding: 5px 12px 5px 10px; }
+  .block-word-btn { min-height: 36px; padding: 5px 12px; }
 }
 
 /* ---------- 触摸设备输入框字号收口（放最后，覆盖各组件的 13/14px 规则）

@@ -15,9 +15,12 @@
 import argparse
 import glob
 import os
+import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import wave
@@ -48,14 +51,36 @@ def ensure_model(model_dir, voice):
     os.makedirs(model_dir, exist_ok=True)
     for suffix in (".onnx", ".onnx.json"):
         dest = os.path.join(model_dir, name + suffix)
-        if os.path.isfile(dest) and os.path.getsize(dest) > 1000:
+        if valid_model_file(dest, suffix):
             continue
         url = MIRROR + voice_dir + "/" + name + suffix
+        tmp = dest + ".part"
         print("下载", url, flush=True)
-        urllib.request.urlretrieve(url, dest)
+        try:
+            urllib.request.urlretrieve(url, tmp)
+            if not valid_model_file(tmp, suffix):
+                raise SystemExit("下载文件不完整或格式不对：%s" % url)
+            os.replace(tmp, dest)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
         print("  ", os.path.getsize(dest), "bytes", flush=True)
     return os.path.join(model_dir, name + ".onnx"), os.path.join(model_dir, name + ".onnx.json")
 
+
+
+def valid_model_file(path, suffix):
+    if not os.path.isfile(path) or os.path.getsize(path) <= 1000:
+        return False
+    try:
+        if suffix == ".onnx":
+            # ONNX 是二进制 protobuf，不假定文件头；完整 medium 声库远大于 1 MB
+            return os.path.getsize(path) > 1000000
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+        return True
+    except (OSError, ValueError):
+        return False
 
 def words_from_file(path):
     with open(path, encoding="utf-8") as f:
@@ -135,11 +160,14 @@ def main():
 
     model, config = ensure_model(args.model_dir, args.voice)
     os.makedirs(args.out, exist_ok=True)
-    work_dir = os.path.join(args.model_dir, "_wav")
-    wavs = synthesize(words, args.piper, model, config, work_dir)
-    if len(wavs) < len(words):
-        print("警告：词表 %d 个，只生成 %d 个音频，可能有词被跳过" % (len(words), len(wavs)), flush=True)
-    sizes = [to_mp3(p, args.out) for p in wavs]
+    work_dir = tempfile.mkdtemp(prefix="_wav-", dir=args.model_dir)
+    try:
+        wavs = synthesize(words, args.piper, model, config, work_dir)
+        if len(wavs) < len(words):
+            print("警告：词表 %d 个，只生成 %d 个音频，可能有词被跳过" % (len(words), len(wavs)), flush=True)
+        sizes = [to_mp3(p, args.out) for p in wavs]
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
     total = sum(sizes)
     print("输出 %d 个 mp3，合计 %.1f MB，平均 %d B" % (len(sizes), total / 1024 / 1024, total // len(sizes)))
     print("按 3400 词估算约 %.1f MB" % (total / len(sizes) * 3400 / 1024 / 1024))
