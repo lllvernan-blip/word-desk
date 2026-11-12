@@ -1,7 +1,7 @@
 # word-desk · 剩余工程 Play（交别处执行）
 
-> 基线：仓库 `/Users/nan/Documents/word-desk`，HEAD 以落盘时 `git rev-parse --short HEAD` 为准（撰写时约 `132992d`），SW `wtp-shell-v56`。  
-> 约束：只改约定范围；动 `dist/` 静态资源按 `AGENTS.md` 升 `CACHE`；**不提交 / 不发布**除非用户明确说。  
+> 基线：本文所有路径均相对仓库根目录；HEAD 以落盘时 `git rev-parse --short HEAD` 为准（撰写时约 `132992d`），SW `wtp-shell-v56`。  
+> 约束：只改约定范围；动 `dist/` 静态资源按 `AGENTS.md` 升 `CACHE`；**不提交 / 不发布**，除非负责人明确要求。  
 > ECDICT 唯一来源：钉死 **`ecdict.csv` 原表**（不是 `words-core.js` 里已翻译成中文的 examTags），sha256 前缀 `d1ecbdf9ee2b920a`；加词只改筛选再生成，不手贴。  
 > 本文件是工程切片，不替代 `docs/版本规划.md` 的路线优先级。  
 > Chief 不跑大工程；本文件给人/他处执行。
@@ -153,4 +153,4 @@ node --check dist/app.js && node --check dist/sw.js
 1. 改了哪些路径  
 2. CACHE 是否从几升到几；音频若动了，`index.json` 的 `v` 是否同批  
 3. 怎么验、哪几条没验  
-4. `git status`（确认未提交，除非用户已下令）  
+4. `git status`（确认未提交，除非负责人已下令）  
