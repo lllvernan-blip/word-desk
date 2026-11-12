@@ -10,18 +10,16 @@ const CONFIG = {
   contentUrl: './content/manifest.json',
   pageSize: 24,
   maxEvents: 1200,
-  version: '2026.11.07.1',
+  version: '2026.11.12.1',
   /* 「不需要」上报端点：留空 = 不发任何请求（默认）。
      拿到 webhook 后把地址填在这里即可生效，无需改其它代码。 */
   markReportUrl: ''
 };
 
 /* 功能开关：听音拼写已恢复，但只对 audio/index.json 里真实存在的词开放；
-   没有离线音频的词一律走文字练习，绝不用语音合成凑发音。
-   跟读自评仍下架（依赖标准发音，暂不恢复）。 */
+   没有离线音频的词一律走文字练习，绝不用语音合成凑发音。 */
 const FEATURES = {
-  listenDictation: true,
-  followRead: false
+  listenDictation: true
 };
 
 const LS_PREFIX = 'wtp.ls.';
@@ -262,7 +260,8 @@ const DB = (() => {
       }
       if (store === 'events') {
         const arr = lsRead(store) || [];
-        arr.push(val);
+        const i = arr.findIndex((x) => x && x.id === val.id);
+        if (i >= 0) arr[i] = val; else arr.push(val);
         lsWrite(store, arr.slice(-CONFIG.maxEvents));
         return;
       }
@@ -329,7 +328,7 @@ function reportVoiceFailure(reason) {
 
 /* ---------- 离线发音包：分片存储 + 字节区间读取 ----------
    3400 个词全放在 audio/ 会变成 3400 个文件，静态托管同步慢且容易发布失败。
-   所以打包成 17 个 pack-XX.bin，index.json 记录每个词的 [包序号, 偏移, 长度]。
+   所以切成多个 pack-XX.bin（每片约 200 词），index.json 记录每个词的 [包序号, 偏移, 长度]。
    播放某个词只发一个几 KB 的 Range 请求，不下载整包。
    音频由 Piper + LJSpeech 声库（public domain）预生成，构建脚本 tools/build-audio-bundles.py。 */
 const AUDIO = {
@@ -551,13 +550,9 @@ function loadAudioUrl(key) {
       else if (crMatch) startsAt = Number(crMatch[1]);          // 206：按服务器声明的起点
       else if (buf.byteLength === slot[2]) startsAt = from;     // 206 缺 C-R 但长度刚好是一个词的
       if (startsAt === null) return null;
-      if (startsAt === from) {
-        if (buf.byteLength < slot[2]) return null;
-        buf = buf.slice(0, slot[2]);
-      } else {
-        if (buf.byteLength < from + slot[2]) return null;       // 拿到的数据不够切，别硬播
-        buf = buf.slice(from, from + slot[2]);
-      }
+      const offset = from - startsAt;
+      if (offset < 0 || buf.byteLength < offset + slot[2]) return null;
+      buf = buf.slice(offset, offset + slot[2]);
       if (!buf || !buf.byteLength) return null;
       audioCacheWrite(audioCacheName(idx.v), key, buf); // 后台写，不阻塞这次播放
       return toAudioUrl(key, buf);
@@ -613,6 +608,7 @@ function unlockAudio() {
 
 /* Safari 在 await 之后会拒绝 play()，这时用 Web Audio 播同一段字节 */
 function playViaWebAudio(key, rate) {
+  const seq = AUDIO.seq;
   const ctx = audioContext();
   if (!ctx) return Promise.resolve({ ok: false, reason: 'unsupported' });
   return loadAudioUrl(key).then((url) => {
@@ -623,6 +619,7 @@ function playViaWebAudio(key, rate) {
         const resume = ctx.state === 'suspended' ? ctx.resume().catch(() => null) : Promise.resolve();
         resume.then(() => {
           ctx.decodeAudioData(buf, (decoded) => {
+            if (seq !== AUDIO.seq) { resolve({ ok: false, reason: 'stale' }); return; }
             try {
               const src = ctx.createBufferSource();
               src.buffer = decoded;
@@ -675,20 +672,16 @@ function playAudioFile(word, rate) {
   if (!key) return Promise.resolve({ ok: false, reason: 'no-file' });
   const seq = ++AUDIO.seq;
   const cached = AUDIO.urls.get(key);
-  if (cached) return startAudioEl(key, cached, rate);
-  return loadAudioUrl(key).then((url) => {
+  const playback = cached ? startAudioEl(key, cached, rate) : loadAudioUrl(key).then((url) => {
     if (seq !== AUDIO.seq) return { ok: false, reason: 'stale' };
     if (!url) return { ok: false, reason: 'no-file' };
     return startAudioEl(key, url, rate);
-  }).then((r) => {
+  });
+  return playback.then((r) => {
+    if (seq !== AUDIO.seq) return { ok: false, reason: 'stale' };
     if (r.ok || r.reason !== 'blocked') return r;
     return playViaWebAudio(key, rate);
   });
-}
-
-function isIOS() {
-  const ua = navigator.userAgent || '';
-  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
 function pickEnglishVoice(list) {
@@ -751,7 +744,7 @@ async function speakWord(text, opts) {
   const o = opts || {};
   unlockAudio(); // 必须在点击的同步栈里，否则等完网络 Web Audio 也发不了声
   const r = await playAudioFile(text);
-  if (r.ok) return r;
+  if (r.ok || r.reason === 'stale') return r;
   // 音频被拦或浏览器不支持时不再叠一层 TTS，避免两个声音同时响
   if (r.reason === 'blocked' || r.reason === 'unsupported') {
     if (!o.auto) reportVoiceFailure(r.reason);
@@ -816,138 +809,6 @@ async function speakWithTTS(text, opts) {
   });
 }
 
-/* ---------- 跟读录音：只存内存，不写 IndexedDB、不上传 ---------- */
-const REC = { stream: null, recorder: null, chunks: [], url: '', active: false, discard: false };
-
-function recSupported() {
-  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
-}
-
-function stopRecTracks() {
-  if (REC.stream) {
-    REC.stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) { /* ignore */ } });
-    REC.stream = null;
-  }
-}
-
-function revokeRecUrl() {
-  if (REC.url) {
-    try { URL.revokeObjectURL(REC.url); } catch (e) { /* ignore */ }
-    REC.url = '';
-  }
-}
-
-function releaseRecorder() {
-  REC.discard = true;
-  try {
-    if (REC.recorder && REC.recorder.state !== 'inactive') REC.recorder.stop();
-  } catch (e) { /* ignore */ }
-  REC.recorder = null;
-  REC.chunks = [];
-  REC.active = false;
-  stopRecTracks();
-  revokeRecUrl();
-  const audio = document.getElementById('frAudio');
-  if (audio) { audio.removeAttribute('src'); audio.hidden = true; }
-}
-
-function setFollowStatus(text) {
-  const el = document.getElementById('frStatus');
-  if (el) el.textContent = text;
-}
-
-function updateFollowButtons() {
-  document.querySelectorAll('#sessionBody [data-action="follow-record"]').forEach((b) => {
-    b.textContent = REC.active ? '停止录音' : (b.closest('#frAfter') ? '再录一次' : '开始录音');
-  });
-}
-
-function toggleFollowRecording() {
-  if (!FEATURES.followRead || !session) return;
-  if (REC.active && REC.recorder && REC.recorder.state !== 'inactive') {
-    try { REC.recorder.stop(); } catch (e) { /* ignore */ }
-    setFollowStatus('正在保存录音…');
-    return;
-  }
-  startFollowRecording();
-}
-
-async function startFollowRecording() {
-  if (!FEATURES.followRead) return;
-  const card = currentCard();
-  if (!card || cardStage(card) !== 'result') return;
-  if (!settings.followRead) return;
-  if (!recSupported()) {
-    setFollowStatus('当前浏览器不支持录音，可先用上面的播放键跟读');
-    return;
-  }
-  releaseRecorder();
-  setFollowStatus('正在请求麦克风…');
-  try {
-    REC.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    REC.stream = null;
-    const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-    setFollowStatus(denied
-      ? '麦克风权限被拒绝，无法录音；可继续用播放键跟读'
-      : '无法开始录音（麦克风不可用），可继续用播放键跟读');
-    return;
-  }
-  let rec = null;
-  try {
-    const useWebm = window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm');
-    rec = useWebm ? new MediaRecorder(REC.stream, { mimeType: 'audio/webm' }) : new MediaRecorder(REC.stream);
-  } catch (e) {
-    stopRecTracks();
-    setFollowStatus('这台浏览器的录音格式不支持，可继续用播放键跟读');
-    return;
-  }
-  REC.recorder = rec;
-  REC.chunks = [];
-  REC.active = true;
-  REC.discard = false;
-  rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) REC.chunks.push(ev.data); };
-  rec.onstop = () => {
-    if (rec !== REC.recorder) return; // 已经被新一轮录音替换
-    stopRecTracks();
-    REC.active = false;
-    updateFollowButtons();
-    if (REC.discard) { REC.chunks = []; return; }
-    if (!REC.chunks.length) { setFollowStatus('没有录到声音，再试一次'); return; }
-    const blob = new Blob(REC.chunks, { type: rec.mimeType || 'audio/webm' });
-    const audio = document.getElementById('frAudio');
-    if (!audio) return;
-    revokeRecUrl();
-    REC.url = URL.createObjectURL(blob);
-    audio.src = REC.url;
-    audio.hidden = false;
-    try { audio.play().catch(() => {}); } catch (e) { /* ignore */ }
-    const after = document.getElementById('frAfter');
-    if (after) after.hidden = false;
-    setFollowStatus('录好了 · 回放对照，或再录一次');
-  };
-  try {
-    rec.start();
-  } catch (e) {
-    stopRecTracks();
-    REC.active = false;
-    setFollowStatus('录音启动失败，可继续用播放键跟读');
-    return;
-  }
-  updateFollowButtons();
-  setFollowStatus('录音中… 再点一次按钮结束');
-  const audio = document.getElementById('frAudio');
-  if (audio) audio.hidden = true;
-}
-
-function markFollowDone() {
-  const card = currentCard();
-  if (!card) return;
-  card.followRead = 'done';
-  track('follow_read', { word: card.word.word, action: 'done' });
-  setFollowStatus('已记下：跟读练过一次（不计入 FSRS）');
-}
-
 /* ---------- 词库与状态 ---------- */
 /* 精选 400 词优先；ECDICT 核心包只补不覆盖（同名单词以 words.js 为准） */
 const BUILTIN = (() => {
@@ -973,7 +834,6 @@ let settings = {
   endpoint: '',
   report: false,
   listenRate: 1,
-  followRead: false,
   haptic: true,
   includeSpell: true,
   showExamples: false
@@ -997,7 +857,7 @@ let extStore = {};      // { id: { v, fetchedAt, words: [raw] } }，持久化于
 let extBusy = new Set();
 let extManifest = null; // extension/manifest.json，仅用于展示各层词数
 let pasteList = null; // 粘贴批次 { words: [lower], createdAt }，只读内置词库，不写 userWords
-let srsMap = {};
+let srsMap = Object.create(null);
 let wrongBook = [];
 let stats = { answered: 0, correct: 0 };
 let daily = {};
@@ -1065,6 +925,15 @@ function isDistractorSafe(w) {
   return !isSubstringUnsafeMeaning(text);
 }
 
+/* 敏感词表加载：这张表决定「哪些词直接剔除、哪些只不进干扰项」，必须在建库/出题前就绪，
+   所以 init 仍然 await 它——等待时间由 Service Worker 兜住：sensitive.json 走缓存优先，
+   命中即返回（约 0 往返），后台再悄悄更新缓存。
+   取舍：因此本次会话可能用上一版词表。该表极少变，且变动只影响中危词的干扰项资格，
+   不影响高危剔除，所以接受「旧一版」而不接受「每次启动多等一个往返」。
+   边界（fail-safe，宁少出词不出高危词）：
+   - SENSITIVE.removed 初值就内置 5 个高危词，加载失败不会清空，高危词始终被剔除；
+   - 释义侧另有 UNSAFE_ZH_RE 正则兜底，不依赖词表是否加载；
+   - 状态仍是 loaded=false 时，29 个中危词可能进到四选一干扰项里，但不会成为练习主词。 */
 async function loadSensitiveContent() {
   try {
     const res = await fetch('./content/sensitive.json', { cache: 'no-cache' });
@@ -1080,7 +949,8 @@ async function loadSensitiveContent() {
       .map((w) => normalizeEnglish(w)).filter(Boolean));
     SENSITIVE.loaded = true;
   } catch (e) {
-    // 离线首启且无缓存时，至少保留内嵌的高危 5 词，别把已知脏词当正常词
+    // 首次访问离线、或缓存与网络都不可用：保留内置的 5 个高危剔除词，
+    // 不把「没加载到」当成「没有敏感词」放行。
     SENSITIVE.loaded = false;
   }
   invalidateLib();
@@ -1244,7 +1114,9 @@ function library() {
 function findWord(lower) {
   const key = normalizeEnglish(lower);
   if (isHiddenWord(key)) return null;
-  const direct = library().find((w) => w.lower === key);
+  const lib = library();
+  const libIndex = lib.index || (lib.index = new Map(lib.map((w) => [w.lower, w])));
+  const direct = libIndex.get(key);
   if (direct) return direct;
   const extra = userWords.find((w) => w.lower === key) || BUILTIN.find((w) => w.lower === key) || null;
   return extra && !isHiddenWord(extra) ? extra : null;
@@ -1279,13 +1151,15 @@ function filtersActive() {
 /* ---------- 持久化 ---------- */
 const pendingKV = {};
 let kvTimer = null;
+function flushKV() {
+  clearTimeout(kvTimer);
+  kvTimer = null;
+  Object.keys(pendingKV).forEach((k) => { DB.put('kv', { key: k, value: pendingKV[k] }); delete pendingKV[k]; });
+}
 function saveKV(key, value) {
   pendingKV[key] = value;
   clearTimeout(kvTimer);
-  kvTimer = setTimeout(() => {
-    Object.keys(pendingKV).forEach((k) => DB.put('kv', { key: k, value: pendingKV[k] }));
-    Object.keys(pendingKV).forEach((k) => delete pendingKV[k]);
-  }, 220);
+  kvTimer = setTimeout(flushKV, 220);
 }
 function saveSrs(record) { DB.put('srs', record); }
 function saveWrong() { saveKV('wrong', wrongBook); }
@@ -1297,18 +1171,16 @@ async function loadState() {
   const kvRows = await DB.all('kv');
   const kv = {};
   kvRows.forEach((r) => { kv[r.key] = r.value; });
-  if (kv.settings) settings = Object.assign(settings, kv.settings);
+  if (kv.settings) settings = sanitizeBackupSettings(kv.settings);
   if (!['en2zh', 'zh2en', 'listen'].includes(settings.direction)) settings.direction = 'en2zh';
-  // 听音拼写已下架：历史设置里的 listen 自动回落到英译中，不报错
+  // 听音拼写关闭时，历史设置里的 listen 自动回落到英译中，不报错
   if (settings.direction === 'listen' && !FEATURES.listenDictation) settings.direction = 'en2zh';
   settings.listenRate = Number(settings.listenRate) === 0.8 ? 0.8 : 1;
-  // 跟读自评已下架：即使历史设置开着也强制关闭，避免触发麦克风
-  settings.followRead = !!(settings.followRead && FEATURES.followRead);
   // 缺省/旧备份无 haptic 字段时默认开；显式 false 才关
   settings.haptic = settings.haptic !== false;
   // 练习含拼写默认开；显式 false 才关。听音拼写依赖拼写，关拼写时回落英译中
   settings.includeSpell = settings.includeSpell !== false;
-  // 情景例句默认关；仅开关持久化，词卡渲染本批不做
+  // 情景例句默认关；开启时才按需拉取 examples.json，失败当无句
   settings.showExamples = !!settings.showExamples;
   if (settings.direction === 'listen' && !settings.includeSpell) settings.direction = 'en2zh';
   if (kv.audioProbe && typeof kv.audioProbe === 'object') {
@@ -1318,7 +1190,7 @@ async function loadState() {
   if (!Number.isFinite(Number(settings.dailyNew)) || settings.dailyNew < 0) settings.dailyNew = 10;
   settings.dailyNew = Math.min(DAILY_NEW_MAX, Math.max(0, Number(settings.dailyNew)));
   if (kv.stats) stats = Object.assign(stats, kv.stats);
-  daily = kv.daily && typeof kv.daily === 'object' ? kv.daily : {};
+  daily = normalizeDaily(kv.daily);
   wrongBook = Array.isArray(kv.wrong) ? kv.wrong : [];
   blockedOrder = Array.isArray(kv.blocked)
     ? kv.blocked.map((w) => normalizeEnglish(w)).filter(Boolean)
@@ -1342,9 +1214,10 @@ async function loadState() {
     ? { words: kv.pasteList.words.slice(), createdAt: kv.pasteList.createdAt || Date.now() }
     : null;
   const srsRows = await DB.all('srs');
-  srsMap = {};
+  srsMap = Object.create(null);
   srsRows.forEach((r) => { if (r && r.word) srsMap[r.word] = r; });
-  events = (await DB.all('events')) || [];
+  events = ((await DB.all('events')) || []).sort((a, b) => (a.ts || 0) - (b.ts || 0)).slice(-CONFIG.maxEvents);
+  pruneStoredEvents(); // 后台清理 IDB 里的历史积压，不阻塞启动
   let touched = false;
   for (const r of Object.values(srsMap)) {
     if (!r.state) { r.state = r.stability > 0 ? 'review' : 'new'; touched = true; }
@@ -1354,7 +1227,9 @@ async function loadState() {
     daily[dateKey()] = { answers: 0, correct: 0, reviews: 0, newWords: 0, wrongAdded: 0, wrongTotal: wrongBook.length };
   }
   if (touched) { Object.values(srsMap).forEach((r) => DB.put('srs', r)); }
-}/* ---------- 词缀拆解 ---------- */
+}
+
+/* ---------- 词缀拆解 ---------- */
 function splitAffixes(w) {
   const lower = w.word.toLowerCase();
   const pre = w.prefixes.slice().sort((a, b) => b.length - a.length);
@@ -1425,11 +1300,16 @@ function masteryLevel(r) {
 }
 
 /* ---------- 顶部 / 今日 ---------- */
+function dailyReviews(k) {
+  const rec = daily[k];
+  return (rec && Number(rec.reviews)) || 0;
+}
+
 function computeStreak() {
   let d = startOfDay();
   let count = 0;
-  if (!(daily[dateKey(d)] || {}).reviews) d = addDays(d, -1);
-  while (count < 3650 && (daily[dateKey(d)] || {}).reviews) {
+  if (!dailyReviews(dateKey(d))) d = addDays(d, -1);
+  while (count < 3650 && dailyReviews(dateKey(d))) {
     count++;
     d = addDays(d, -1);
   }
@@ -1439,8 +1319,9 @@ function computeStreak() {
 function todaySnapshot() {
   const now = Date.now();
   const words = library();
-  const dueList = Object.values(srsMap).filter((r) => r.due <= now && r.state !== 'new' && !isHiddenWord(r.word));
-  const learnedToday = Object.values(srsMap).filter((r) => r.firstReview && !r.fromDrill && !isHiddenWord(r.word) && dateKey(new Date(r.firstReview)) === dateKey()).length;
+  const libIndex = words.index || (words.index = new Map(words.map((w) => [w.lower, w])));
+  const dueList = Object.values(srsMap).filter((r) => r && r.due <= now && r.state !== 'new' && libIndex.has(r.word));
+  const learnedToday = Object.values(srsMap).filter((r) => r && r.firstReview && !r.fromDrill && libIndex.has(r.word) && dateKey(new Date(r.firstReview)) === dateKey()).length;
   const newLeft = Math.max(0, settings.dailyNew - learnedToday);
   const unlearned = words.filter((w) => !srsMap[w.lower]).length;
   const d = daily[dateKey()] || { reviews: 0, answers: 0, correct: 0 };
@@ -1767,12 +1648,12 @@ function renderChipGroup(type) {
   const targets = type === 'prefix' ? [$('prefixChips'), $('libPrefixChips')]
     : type === 'suffix' ? [$('suffixChips'), $('libSuffixChips')]
       : [$('rootChips'), $('libRootChips')];
+  const needMore = !q && items.length > AFFIX_CHIP_LIMIT;
   targets.forEach((el) => {
     if (!el) return;
     el.innerHTML = html;
-    el.classList.toggle('is-expanded', expanded);
+    el.classList.toggle('is-expanded', expanded || (items.length && items.length <= AFFIX_CHIP_LIMIT));
   });
-  const needMore = !q && items.length > AFFIX_CHIP_LIMIT;
   document.querySelectorAll(`[data-expand="${type}"]`).forEach((btn) => {
     btn.hidden = !needMore;
     btn.textContent = expanded ? '收起' : '展开';
@@ -1894,7 +1775,7 @@ function renderWrong() {
   box.innerHTML = visible.slice(0, 30).map((x) => `
     <div class="wrong-item" data-wrong="${esc(x.word)}">
       <div class="wi-main">
-        <div class="wi-word">${esc(x.word)} <span class="tag">错 ${x.count || 1} 次</span></div>
+        <div class="wi-word">${esc(x.word)} <span class="tag">错 ${Number(x.count) || 1} 次</span></div>
         <div class="wi-mn">${esc((x.meanings || []).join('；'))}</div>
       </div>
       <div class="wi-ops">
@@ -1918,9 +1799,10 @@ function renderHeatmap() {
   const cells = [];
   for (let d = start; d <= today; d = addDays(d, 1)) {
     const k = dateKey(d);
-    const n = (daily[k] || {}).reviews || 0;
+    const rec = daily[k];
+    const n = (rec && rec.reviews) || 0;
     const lv = n === 0 ? 0 : n < 4 ? 1 : n < 10 ? 2 : n < 20 ? 3 : n < 30 ? 4 : 5;
-    cells.push(`<div class="heat-cell" data-l="${lv}" title="${k} · ${n} 次复习"></div>`);
+    cells.push(`<div class="heat-cell" data-l="${lv}" title="${k} · ${Number(n) || 0} 次复习"></div>`);
   }
   while (cells.length % 7) cells.push('<div class="heat-cell blank" data-l="0"></div>');
   $('heatmap').innerHTML = cells.join('');
@@ -2040,9 +1922,11 @@ function renderStats() {
   renderMastery();
   renderCurve();
   renderWrongTrend();
-  const total = Object.values(daily).reduce((n, d) => n + (d.reviews || 0), 0);
-  $('totalReviewed').textContent = `累计 ${total} 次复习 · 拼写差一点 ${stats.spellErrors || 0} 次`;
-  const next = Object.values(srsMap).filter((r) => r.due > Date.now()).sort((a, b) => a.due - b.due)[0];
+  const total = Object.values(daily).reduce((n, d) => n + ((d && Number(d.reviews)) || 0), 0);
+  $('totalReviewed').textContent = `累计 ${total} 次复习 · 拼写差一点 ${Number(stats.spellErrors) || 0} 次`;
+  const next = Object.values(srsMap)
+    .filter((r) => r && Number(r.due) > Date.now() && !isHiddenWord(r.word))
+    .sort((a, b) => a.due - b.due)[0];
   $('nextDuePreview').textContent = next ? `下次复习：${dueText(next.due)}` : '还没有复习计划';
   $('endpointInput').value = settings.endpoint || '';
   $('reportToggle').checked = !!settings.report;
@@ -2072,6 +1956,8 @@ async function buildProgressPayload() {
         word: w.word, meanings: w.meanings, pos: w.pos,
         prefixes: w.prefixes, suffixes: w.suffixes, phonetic: w.phonetic,
         freqRank: w.freqRank, origin: w.origin, source: w.source,
+        examples: w.examples, examTags: w.examTags, lemma: w.lemma, exchange: w.exchange,
+        confidence: w.confidence, affixConfidence: w.affixConfidence,
         createdAt: w.createdAt, updatedAt: w.updatedAt
       })),
       srs: srsRecords,
@@ -2119,7 +2005,12 @@ async function exportProgress() {
 }
 
 function sanitizeBackupSettings(raw) {
-  const merged = Object.assign({}, settings, isPlainObject(raw) ? raw : {});
+  const src = isPlainObject(raw) ? raw : {};
+  const merged = {};
+  Object.keys(settings).forEach((k) => { merged[k] = settings[k]; });
+  ['direction', 'answerType', 'count', 'dailyNew', 'listenRate', 'shuffle', 'haptic', 'includeSpell', 'showExamples', 'report', 'endpoint', 'libMode'].forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(src, k)) merged[k] = src[k];
+  });
   if (!['en2zh', 'zh2en', 'listen'].includes(merged.direction)) merged.direction = 'en2zh';
   if (merged.direction === 'listen' && !FEATURES.listenDictation) merged.direction = 'en2zh';
   if (!['choice', 'input'].includes(merged.answerType)) merged.answerType = 'choice';
@@ -2127,14 +2018,20 @@ function sanitizeBackupSettings(raw) {
   merged.count = String(merged.count);
   merged.dailyNew = Math.min(DAILY_NEW_MAX, Math.max(0, Number(merged.dailyNew) || 0));
   merged.listenRate = Number(merged.listenRate) === 0.8 ? 0.8 : 1;
-  merged.followRead = false;
   merged.shuffle = merged.shuffle !== false;
   merged.haptic = merged.haptic !== false;
   merged.includeSpell = merged.includeSpell !== false;
   merged.showExamples = !!merged.showExamples;
   if (merged.direction === 'listen' && !merged.includeSpell) merged.direction = 'en2zh';
   merged.report = !!merged.report;
-  merged.endpoint = typeof merged.endpoint === 'string' ? merged.endpoint : '';
+  // 上报地址只接受本站同源或 https 端点：备份恢复不引入任意 http(s) 上报目标
+  if (typeof merged.endpoint === 'string' && merged.endpoint) {
+    try {
+      const u = new URL(merged.endpoint, location.href);
+      if (u.origin !== location.origin && u.protocol !== 'https:') merged.endpoint = '';
+      else merged.endpoint = u.href;
+    } catch (e) { merged.endpoint = ''; }
+  } else merged.endpoint = '';
   merged.libMode = ['all', 'builtin', 'user'].includes(merged.libMode) ? merged.libMode : 'all';
   return merged;
 }
@@ -2146,11 +2043,24 @@ function normalizeSrsRecord(raw) {
   if (!key) return null;
   const base = FSRS.empty(key);
   const rec = Object.assign({}, base, raw, { word: key });
-  rec.history = Array.isArray(raw.history) ? raw.history : [];
+  rec.history = Array.isArray(raw.history)
+    ? raw.history.filter((h) => isPlainObject(h)).map((h) => ({
+        t: Number(h.t) >= 0 ? Number(h.t) : 0,
+        rating: [1, 2, 3, 4].includes(Number(h.rating)) ? Number(h.rating) : 3,
+        ms: Number(h.ms) >= 0 ? Math.floor(Number(h.ms)) : null,
+        correct: !!h.correct
+      })).slice(-12)
+    : [];
   ['stability', 'difficulty', 'due', 'interval', 'reps', 'lapses', 'lastReview', 'firstReview', 'step'].forEach((k) => {
-    if (!Number.isFinite(Number(rec[k]))) rec[k] = base[k];
+    const n = Number(rec[k]);
+    rec[k] = Number.isFinite(n) && n >= 0 ? n : base[k];
   });
-  if (!rec.state) rec.state = base.state;
+  ['reps', 'lapses', 'step'].forEach((k) => { rec[k] = Math.floor(rec[k]); });
+  rec.step = Math.min(1, rec.step);
+  rec.difficulty = Math.min(10, rec.difficulty);
+  rec.stability = Math.min(365, rec.stability);
+  rec.interval = Math.min(365, rec.interval);
+  if (!['new', 'learning', 'relearning', 'review'].includes(rec.state)) rec.state = base.state;
   return rec;
 }
 
@@ -2161,10 +2071,25 @@ function normalizeWrongEntry(raw) {
   return {
     word: w.word, meanings: w.meanings, pos: w.pos,
     prefixes: w.prefixes, suffixes: w.suffixes,
-    count: Math.max(1, Number(raw.count) || 1),
-    createdAt: Number(raw.createdAt) || Date.now(),
-    lastAt: Number(raw.lastAt) || Number(raw.createdAt) || Date.now()
+    count: Math.max(1, Math.min(999999, Number(raw.count) || 1)),
+    createdAt: Number(raw.createdAt) > 0 ? Number(raw.createdAt) : Date.now(),
+    lastAt: Number(raw.lastAt) > 0 ? Number(raw.lastAt) : (Number(raw.createdAt) > 0 ? Number(raw.createdAt) : Date.now())
   };
+}
+
+function normalizeDaily(raw) {
+  const out = {};
+  if (!isPlainObject(raw)) return out;
+  Object.entries(raw).forEach(([day, record]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !isPlainObject(record)) return;
+    const values = {};
+    ['answers', 'correct', 'reviews', 'newWords', 'wrongAdded', 'wrongTotal', 'drills', 'spellErrors'].forEach((key) => {
+      const n = Number(record[key]);
+      if (Number.isSafeInteger(n) && n >= 0) values[key] = n;
+    });
+    out[day] = values;
+  });
+  return out;
 }
 
 function parseBackup(raw) {
@@ -2196,7 +2121,7 @@ function parseBackup(raw) {
     wrongBook: wrongIn,
     blocked: blockedIn,
     settings: sanitizeBackupSettings(d.settings),
-    daily: isPlainObject(d.daily) ? d.daily : {},
+    daily: normalizeDaily(d.daily),
     stats: isPlainObject(d.stats) ? d.stats : {},
     pasteList: pasteIn
   };
@@ -2242,7 +2167,7 @@ function snapshotLocalState() {
     settings: Object.assign({}, settings),
     blockedOrder: blockedOrder.slice(),
     userWords: userWords.slice(),
-    srsMap: Object.assign({}, srsMap),
+    srsMap: Object.assign(Object.create(null), srsMap),
     wrongBook: wrongBook.slice(),
     daily: JSON.parse(JSON.stringify(daily)),
     stats: Object.assign({}, stats),
@@ -2291,9 +2216,10 @@ async function applyBackup(b) {
   const snap = snapshotLocalState();
   const revert = [];
   try {
+    const blockedIn = Array.isArray(b.blocked) ? b.blocked : [];
     const blockedSet = new Set(blockedOrder);
     const nextBlocked = blockedOrder.slice();
-    b.blocked.forEach((k) => { if (!blockedSet.has(k)) { blockedSet.add(k); nextBlocked.push(k); } });
+    blockedIn.forEach((k) => { if (!blockedSet.has(k)) { blockedSet.add(k); nextBlocked.push(k); } });
     await DB.put('kv', { key: 'blocked', value: nextBlocked });
     revert.push({ store: 'kv', key: 'blocked', prev: snap.blockedOrder });
     blockedOrder = nextBlocked;
@@ -2301,29 +2227,35 @@ async function applyBackup(b) {
 
     // 自建词：同词取 updatedAt 较新的一条
     const userOps = [];
-    b.userWords.forEach((w) => {
+    (b.userWords || []).forEach((w) => {
+      if (!w || !w.lower) return;
       const idx = userWords.findIndex((x) => x.lower === w.lower);
       if (idx >= 0 && (Number(userWords[idx].updatedAt) || 0) >= (Number(w.updatedAt) || 0)) return;
       const prev = idx >= 0 ? userWords[idx] : null;
       if (idx >= 0) userWords[idx] = w; else userWords.push(w);
       userOps.push({ w, prev, key: w.lower });
     });
-    for (const op of userOps) await DB.put('userWords', op.w);
-    if (userOps.length) revert.push({ store: 'userWords', revert: userOps });
+    for (const op of userOps) {
+      await DB.put('userWords', op.w);
+      revert.push({ store: 'userWords', revert: [{ prev: op.prev, key: op.key }] });
+    }
 
     // SRS：同词取 lastReview 较新的一条
     const srsOps = [];
-    b.srs.forEach((r) => {
+    (b.srs || []).forEach((r) => {
+      if (!r || !r.word) return;
       const existing = srsMap[r.word];
       if (existing && (Number(existing.lastReview) || 0) >= (Number(r.lastReview) || 0)) return;
       srsMap[r.word] = r;
       srsOps.push({ w: r, prev: existing || null, key: r.word });
     });
-    for (const op of srsOps) await DB.put('srs', op.w);
-    if (srsOps.length) revert.push({ store: 'srs', revert: srsOps });
+    for (const op of srsOps) {
+      await DB.put('srs', op.w);
+      revert.push({ store: 'srs', revert: [{ prev: op.prev, key: op.key }] });
+    }
 
     // 错题本：次数无条件取最大；lastAt 只决定其余字段取哪边
-    b.wrongBook.forEach((x) => {
+    (b.wrongBook || []).forEach((x) => {
       const key = normalizeEnglish(x.word);
       const idx = wrongBook.findIndex((y) => normalizeEnglish(y.word) === key);
       if (idx >= 0) {
@@ -2342,6 +2274,7 @@ async function applyBackup(b) {
     revert.push({ store: 'kv', key: 'wrong', prev: snap.wrongBook });
 
     // 每日统计：按日期逐项取较大值，避免同一轮练习被重复计数
+    b.daily = normalizeDaily(b.daily);
     Object.keys(b.daily).forEach((day) => {
       const inc = b.daily[day];
       if (!isPlainObject(inc)) return;
@@ -2350,8 +2283,9 @@ async function applyBackup(b) {
         if (typeof inc[k] === 'number') daily[day][k] = Math.max(Number(daily[day][k]) || 0, inc[k]);
       });
     });
-    Object.keys(b.stats).forEach((k) => {
-      if (typeof b.stats[k] === 'number') stats[k] = Math.max(Number(stats[k]) || 0, b.stats[k]);
+    Object.keys(isPlainObject(b.stats) ? b.stats : {}).forEach((k) => {
+      const n = Number(b.stats[k]);
+      if (Number.isSafeInteger(n) && n >= 0) stats[k] = Math.max(Number(stats[k]) || 0, n);
     });
     await DB.put('kv', { key: 'daily', value: daily });
     revert.push({ store: 'kv', key: 'daily', prev: snap.daily });
@@ -2374,10 +2308,12 @@ async function applyBackup(b) {
     throw e;
   }
 
-  track('backup_import_ok', { userWords: b.userWords.length, srs: b.srs.length });
+  track('backup_import_ok', { userWords: (b.userWords || []).length, srs: (b.srs || []).length });
   toast('恢复完成，页面即将重载');
   setTimeout(() => location.reload(), 300);
-}/* ---------- 简化版 FSRS 调度（自包含，无依赖） ----------
+}
+
+/* ---------- 简化版 FSRS 调度（自包含，无依赖） ----------
    目标记忆保持率 desiredRetention = 0.9，学习步骤 1 分钟 / 10 分钟，
    最大间隔 365 天。字段命名对齐 FSRS：stability / difficulty / state。 */
 const FSRS = (() => {
@@ -2398,7 +2334,7 @@ const FSRS = (() => {
   function initDifficulty(rating) { return clamp(INIT_D - (rating - 3) * 0.53, 1, 10); }
   function initStability(rating) { return Math.max(0.2, INIT_S[rating - 1] || 3); }
   function nextDifficulty(d, rating) {
-    const nd = d - (3 - rating) * 0.5;
+    const nd = d + (3 - rating) * 0.5;
     return clamp(0.95 * nd + 0.05 * INIT_D, 1, 10);
   }
   function nextStabilityOk(d, s, r, rating) {
@@ -2504,6 +2440,19 @@ const FSRS = (() => {
 })();
 
 /* ---------- 每日统计 / 埋点 ---------- */
+/* events 只是本地行为日志（导出/上报用）；复习计划由 srs 表驱动，与此无关。
+   IDB 里的旧事件此前从不删除，会随使用天数无限增长；这里按 CONFIG.maxEvents
+   裁掉最旧的，和内存数组、localStorage 降级路径的上限保持一致。 */
+async function pruneStoredEvents() {
+  try {
+    const rows = (await DB.all('events')) || [];
+    if (rows.length <= CONFIG.maxEvents) return;
+    rows.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const drop = rows.slice(0, rows.length - CONFIG.maxEvents);
+    for (const e of drop) { if (e && e.id) await DB.del('events', e.id); }
+  } catch (e) { /* 清理失败不影响主流程，下次启动再试 */ }
+}
+
 function todayRec() {
   const k = dateKey();
   if (!daily[k]) daily[k] = { answers: 0, correct: 0, reviews: 0, newWords: 0, wrongAdded: 0, wrongTotal: wrongBook.length, drills: 0 };
@@ -2540,25 +2489,28 @@ async function flushAnalytics() {
 
 /* ---------- 复习队列 ---------- */
 function countTodayNew() {
-  return Object.values(srsMap).filter((r) => r.firstReview && !r.fromDrill && dateKey(new Date(r.firstReview)) === dateKey()).length;
+  const lib = library();
+  const libIndex = lib.index || (lib.index = new Map(lib.map((w) => [w.lower, w])));
+  return Object.values(srsMap).filter((r) => r && r.firstReview && !r.fromDrill && libIndex.has(r.word) && dateKey(new Date(r.firstReview)) === dateKey()).length;
 }
 
 function buildQueue(source, count, doShuffle, drillRoot) {
   let words = [];
   if (source === 'review') {
     const now = Date.now();
+    const lib = library();
+    const libIndex = lib.index || (lib.index = new Map(lib.map((w) => [w.lower, w])));
+    const cap = DAILY_REVIEW_CAP;
     const due = Object.values(srsMap)
-      .filter((r) => r.due <= now)
+      .filter((r) => r && r.due <= now && libIndex.has(r.word))
       .sort((a, b) => a.due - b.due)
-      .map((r) => findWord(r.word))
-      .filter(Boolean)
-      .slice(0, DAILY_REVIEW_CAP);
+      .slice(0, cap);
     const remainingNew = Math.max(0, settings.dailyNew - countTodayNew());
-    const newPool = library().filter((w) => !srsMap[w.lower]);
+    const newPool = lib.filter((w) => !srsMap[w.lower]);
     const ratioCap = due.length ? Math.max(3, Math.ceil(due.length / 3)) : remainingNew;
     const newTake = Math.min(remainingNew, ratioCap, newPool.length);
     const fresh = (doShuffle ? shuffle(newPool) : newPool).slice(0, newTake);
-    words = due.concat(fresh);
+    words = due.map((r) => libIndex.get(r.word)).concat(fresh);
   } else if (source === 'filter') {
     words = filteredWords();
   } else if (source === 'library') {
@@ -2635,8 +2587,7 @@ function makeCard(w) {
     audioPlayed: false,
     audioAutoTried: false,
     listenFailed: false,
-    listenFallback: '',
-    followRead: null
+    listenFallback: ''
   });
 }
 
@@ -2706,7 +2657,7 @@ function rootEntry(w) {
 
 function rootFamily(root, selfLower) {
   if (!root || !Array.isArray(root.family)) return [];
-  return root.family.filter((x) => x !== selfLower).slice(0, 5);
+  return root.family.filter((x) => x !== selfLower && !isHiddenWord(x)).slice(0, 5);
 }
 
 function rootRowsHTML(w, entry, opts) {
@@ -2836,7 +2787,7 @@ function guessHTML(card) {
         ${card.method === 'choice'
           ? choiceHTML(card)
           : `<input class="answer-input" id="guessInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-               placeholder="${isEn ? '写下你的中文猜测，例如“不快乐的”' : '输入英文单词'}" value="${esc(card.guess || '')}" />`}
+               placeholder="${isEn ? '写下你的中文猜测，例如“不快乐的”' : '输入英文单词'}" value="${esc(card.guessTyped || '')}" />`}
       </div>
       <div class="action-row">
         <button class="btn primary" type="button" data-action="submit-guess">${card.method === 'choice' ? '提交选择' : '提交猜测'}</button>
@@ -2859,7 +2810,7 @@ function revealHTML(card) {
       ? verdictHTML('good', '✓', `听写正确：<strong>${esc(w.word)}</strong>。`)
       : verdictHTML('bad', '×', `这次没听对，正确拼写是 <strong>${esc(w.word)}</strong>。`);
   } else if (card.listenDemoted) {
-    verdict = verdictHTML('skip', '—', '听音拼写已下架，这题按普通拼写继续。<strong>下面是拆解与答案</strong>。');
+    verdict = verdictHTML('skip', '—', '听音拼写不可用，这题按普通拼写继续。<strong>下面是拆解与答案</strong>。');
   } else if (card.guessOk === null) {
     verdict = verdictHTML('skip', '—', '你跳过了猜义。<strong>没关系</strong>，下面用拼写验证来确认记忆。');
   } else if (card.dir === 'zh2en' && card.guessGrade === 'close') {
@@ -2961,27 +2912,6 @@ function listenHTML(card) {
     </div>`;
 }
 
-/* 跟读自评：只在结果页出现，默认折叠；录音只留在内存，不写库、不上传 */
-function followReadHTML(card) {
-  if (!FEATURES.followRead || !settings.followRead) return '';
-  return `<details class="follow-read">
-    <summary>跟读自评 <span class="hint">可选 · 不参与评分</span></summary>
-    <div class="follow-read-body">
-      <p class="hint-line">先播放标准发音，再录一遍对照。录音只留在本页内存，不保存、不上传。</p>
-      <div class="fr-actions">
-        <button class="btn tiny ghost" type="button" data-action="follow-play">播放标准发音</button>
-        <button class="btn tiny" type="button" data-action="follow-record">开始录音</button>
-        <span class="fr-status" id="frStatus">${card.followRead === 'done' ? '已练过一次（不计入 FSRS）' : '未录音'}</span>
-      </div>
-      <audio id="frAudio" class="fr-audio" controls hidden></audio>
-      <div class="fr-actions" id="frAfter" hidden>
-        <button class="btn tiny ghost" type="button" data-action="follow-record">再录一次</button>
-        <button class="btn tiny" type="button" data-action="follow-done">练过一次</button>
-      </div>
-    </div>
-  </details>`;
-}
-
 function resultHTML(card) {
   const w = card.word;
   const rec = card.record;
@@ -3006,7 +2936,6 @@ function resultHTML(card) {
         ${affixRowsHTML(w)}
       </div>
       <p class="hint-line">下次复习：<b>${rec ? esc(dueText(rec.due)) : '—'}</b> · 稳定度 ${rec ? esc((rec.stability || 0).toFixed(1)) : '0'} 天 · 难度 ${rec ? esc((rec.difficulty || 0).toFixed(1)) : '—'}</p>
-      ${followReadHTML(card)}
       <div class="action-row">
         <button class="btn primary" type="button" data-action="next-card">${session.index + 1 >= session.total ? '完成本轮' : '下一题'}</button>
         <span class="spacer"></span>
@@ -3066,6 +2995,7 @@ function renderSession() {
   const card = currentCard();
   if (!card) { renderFinish(); return; }
   demoteListenSteps(card);
+  if (cardStage(card) === 'guess' && !card.guessShownAt) card.guessShownAt = Date.now();
   const body = $('sessionBody');
   const progress = session.total ? ((session.index + (card.result != null ? 1 : 0)) / session.total) * 100 : 0;
   $('progressBar').style.width = `${Math.min(100, progress)}%`;
@@ -3094,7 +3024,14 @@ function renderSession() {
 
   if (stage === 'guess' || stage === 'recall' || stage === 'listen') {
     const input = $(stage === 'guess' ? 'guessInput' : 'recallInput');
-    if (input) setTimeout(() => input.focus({ preventScroll: true }), 60);
+    if (input) {
+      input.addEventListener('input', () => {
+        if (!session || session.queue[session.index] !== card) return;
+        if (stage === 'guess') card.guessTyped = input.value;
+        else card.recallTyped = input.value;
+      });
+      setTimeout(() => input.focus({ preventScroll: true }), 60);
+    }
   }
   if (stage === 'listen') applyListenEntry(card);
 }
@@ -3105,12 +3042,13 @@ function applyListenEntry(card) {
   if (!FEATURES.listenDictation) return;
   if (card.listenEntryDone) return;
   card.listenEntryDone = true;
+  const s = session;
   const key = audioKey(card.word.word);
   if (!key || !hasOfflineAudio(card.word)) { handleListenFailure(card, 'no-file'); return; }
   if (AUDIO.urls.has(key)) return;
   // 进入卡片先预取当前词所在分片，最多等 5 秒；失败只降级，不阻塞答题
   loadAudioWithTimeout(key, 5000).then((url) => {
-    if (!url && session && cardStage(card) === 'listen' && !card.audioPlayed) {
+    if (!url && session === s && currentCard() === card && cardStage(card) === 'listen' && !card.audioPlayed) {
       handleListenFailure(card, 'timeout');
     }
   });
@@ -3160,12 +3098,13 @@ function restoreRecallFocus() {
 }
 
 async function playListenAudio(card) {
-  if (!session || cardStage(card) !== 'listen') return;
+  if (!session || currentCard() !== card || cardStage(card) !== 'listen') return;
+  const s = session;
   card.audioPlayed = true;
   unlockAudio();
   const key = audioKey(card.word.word);
   const res = await playAudioFile(card.word.word, settings.listenRate); // 只听离线音频，不退到 TTS
-  if (!session || cardStage(card) !== 'listen') return; // 播放期间已切题
+  if (session !== s || currentCard() !== card || cardStage(card) !== 'listen') return; // 播放期间已切题/换队列
   if (res.ok) {
     if (card.listenFailed) {
       card.listenFailed = false;
@@ -3194,7 +3133,7 @@ function renderFinish() {
       <h3 class="summary-rate">正确率 ${rate}%</h3>
       <p class="hint-line">${s.answered} 题 · ${s.correct} 题正确 · 用时约 ${mins} 分钟 · 最长连对 ${s.bestStreak}</p>
       <div class="meaning-list summary-next">
-        <div class="meaning-item"><span class="idx">到期</span><span>${Math.min(DAILY_REVIEW_CAP, Object.values(srsMap).filter((r) => r.due <= Date.now() && !isHiddenWord(r.word)).length)} 个词</span></div>
+        <div class="meaning-item"><span class="idx">到期</span><span>${todaySnapshot().due} 个词</span></div>
         <div class="meaning-item"><span class="idx">错题</span><span>${wrongBook.filter((x) => !isHiddenWord(x.word)).length} 个词在错题本</span></div>
       </div>
       <div class="action-row summary-actions">
@@ -3203,7 +3142,9 @@ function renderFinish() {
         <button class="btn ghost" type="button" data-action="close-session">返回</button>
       </div>
     </div>`;
-}/* ---------- 训练动作与评分 ---------- */
+}
+
+/* ---------- 训练动作与评分 ---------- */
 /* 干扰项安全池：敏感词、用户屏蔽、近义、拼写只差 1~2 字母的候选一律不选。
    近义判定用释义的归一化字符串与二字片段做交集，双向检查（中译英/英译中都适用）。 */
 function meaningSignature(w) {
@@ -3420,7 +3361,6 @@ function startSession(source, countOverride, opts) {
   }
   const replacing = !!session;
   stopSpeaking();
-  releaseRecorder();
   lastAudioKey = '';
   const wantListen = settings.direction === 'listen' && settings.includeSpell !== false;
   const listenable = wantListen && words.some(hasOfflineAudio);
@@ -3465,9 +3405,7 @@ function startFromPicker() {
 function openPickerForSession() {
   if (!session) { showView('practice'); return; }
   stopSpeaking();
-  releaseRecorder();
   sessionEditing = true;
-  renderSession();
   renderPractice();
   renderSession();
   showView('practice');
@@ -3502,7 +3440,7 @@ function advanceStage() {
   }
   card.step = Math.min(card.steps.length, card.step + 1);
   card.stageShownAt = Date.now();
-  if (cardStage(card) === 'guess') card.guessShownAt = Date.now();
+  if (cardStage(card) === 'guess' && !card.guessShownAt) card.guessShownAt = Date.now();
   renderSession();
 }
 
@@ -3524,7 +3462,7 @@ function submitGuess() {
     card.guessMs = Date.now() - (card.guessShownAt || Date.now());
   } else {
     const input = $('guessInput');
-    value = input ? input.value.trim() : '';
+    value = (input ? input.value.trim() : '') || String(card.guessTyped || '').trim();
     if (!value) { toast('写点你的猜测，或者直接跳过'); return; }
     card.guessMs = Date.now() - (card.guessShownAt || Date.now());
   }
@@ -3557,7 +3495,7 @@ function submitRecall() {
   const stage = card ? cardStage(card) : '';
   if (!card || (stage !== 'recall' && stage !== 'listen')) return;
   const input = $('recallInput');
-  const value = input ? input.value.trim() : '';
+  const value = (input ? input.value.trim() : '') || String(card.recallTyped || '').trim();
   if (!value) { toast('先拼一下，或点“想不起来”'); return; }
   const g = gradeEnglish(card.word, value);
   card.recallOk = g.level !== 'wrong';
@@ -3701,7 +3639,6 @@ function finishCard(card, correct, opts) {
 function nextCard() {
   if (!session) return;
   stopSpeaking();
-  releaseRecorder();
   session.index += 1;
   if (session.index >= session.queue.length) {
     session.finished = true;
@@ -3771,10 +3708,10 @@ function restartSession() {
   if (!session) return;
   const src = session.source;
   const count = session.countMode;
+  const drillRoot = session.drillRoot;
   stopSpeaking();
-  releaseRecorder();
   session = null;
-  startSession(src, count);
+  startSession(src, count, { drillRoot });
 }
 
 function closeSession() {
@@ -3782,7 +3719,6 @@ function closeSession() {
     track('practice_abandon', { at: session.index + 1, total: session.total, answered: session.answered });
   }
   stopSpeaking();
-  releaseRecorder();
   session = null;
   sessionEditing = false;
   lastAudioKey = '';
@@ -3815,7 +3751,9 @@ function showView(name, opts = {}) {
   });
   if (opts.scroll !== false) window.scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'practice') renderSession();
-}/* ---------- 提示 / 导入 / 词条管理 ---------- */
+}
+
+/* ---------- 提示 / 导入 / 词条管理 ---------- */
 let toastTimer = null;
 function toast(msg) {
   const el = $('toast');
@@ -4067,7 +4005,7 @@ async function handleFile(file) {
   if (!file) return;
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   if (!['csv', 'json', 'txt', 'tsv'].includes(ext)) {
-    showImportErrors([`文件类型 .${ext} 不支持：请上传 .csv、.txt 或 .json 文件`]);
+    showImportErrors([`文件类型 .${ext} 不支持：请上传 .csv、.tsv、.txt 或 .json 文件`]);
     track('import_fail', { format: ext, reason: 'unsupported' });
     return;
   }
@@ -4162,6 +4100,7 @@ function resolvePasteList(text) {
   const unknown = [];
   const errors = [];
   const seen = new Set();
+  const resolved = new Set();
   let duplicates = 0;
   let tokens = 0;
   lines.forEach((line, i) => {
@@ -4177,7 +4116,10 @@ function resolvePasteList(text) {
       if (seen.has(t)) { duplicates += 1; return; }
       seen.add(t);
       const w = restorePasteWord(t);
-      if (w) matched.push(w.lower);
+      if (w) {
+        if (resolved.has(w.lower)) duplicates += 1;
+        else { resolved.add(w.lower); matched.push(w.lower); }
+      }
       else {
         unknown.push(t);
         errors.push(`第 ${i + 1} 行：「${rawToken}」内置词库未收录且没有释义，已跳过`);
@@ -4239,7 +4181,7 @@ function startPasteSession() {
   closePasteModal();
   closeImportModal();
   syncPasteEntry();
-  startSession('list', settings.count);
+  startSession('list', 'all');
 }
 
 function syncPasteEntry() {
@@ -4257,6 +4199,7 @@ function parseTXTWords(text) {
   const words = [];
   const listWords = [];
   const listUnknown = [];
+  const listSeen = new Set();
   lines.forEach((line, i) => {
     const src = line.trim();
     if (!src || src.startsWith('#')) return;
@@ -4279,7 +4222,10 @@ function parseTXTWords(text) {
     const toks = src.match(PASTE_TOKEN_RE) || [];
     if (toks.length === 1) {
       const w = restorePasteWord(toks[0].toLowerCase());
-      if (w) listWords.push(w.lower);
+      if (w) {
+        if (!listSeen.has(w.lower)) { listSeen.add(w.lower); listWords.push(w.lower); }
+        else errors.push(`第 ${i + 1} 行：「${toks[0]}」与前文重复，已只保留一次`);
+      }
       else listUnknown.push(toks[0].toLowerCase());
       return;
     }
@@ -4328,8 +4274,11 @@ function handleWordForm(event) {
   const meanings = splitMeanings($('fMeanings').value);
   if (!word || !/^[a-zA-Z][a-zA-Z' -]*$/.test(word)) { toast('单词只能用英文字母、空格、连字符或撇号'); return; }
   if (!meanings.length) { toast('请填写中文释义'); return; }
+  // 编辑时以原词条为底，只覆盖表单展示的字段；重命名不在此处理（避免静默产生重复词条）
+  const original = editingWord ? userWords.find((x) => x.lower === editingWord.toLowerCase()) : null;
+  if (original && original.lower !== word.toLowerCase()) { toast('暂不支持修改拼写：如需换词请删除后重新添加'); return; }
   const existing = userWords.find((x) => x.lower === word.toLowerCase());
-  const obj = makeWord({
+  const obj = makeWord(Object.assign({}, original || {}, {
     word,
     meanings,
     pos: $('fPos').value,
@@ -4337,8 +4286,9 @@ function handleWordForm(event) {
     suffixes: $('fSuffixes').value,
     origin: 'user',
     source: 'manual',
-    createdAt: existing ? existing.createdAt : Date.now()
-  }, 'user');
+    createdAt: existing ? existing.createdAt : Date.now(),
+    updatedAt: Date.now()
+  }), 'user');
   const idx = userWords.findIndex((x) => x.lower === obj.lower);
   if (idx >= 0) userWords[idx] = obj; else userWords.push(obj);
   DB.put('userWords', obj);
@@ -4366,7 +4316,9 @@ async function clearUserWords() {
   invalidateLib();
   renderAll();
   toast('我的词库已清空');
-}/* ---------- 设置与筛选 UI ---------- */
+}
+
+/* ---------- 设置与筛选 UI ---------- */
 function buildFilterOptions() {
   const words = library();
   const posSet = new Set();
@@ -4405,19 +4357,18 @@ function syncSettingsUI() {
   if ($('hapticToggle')) $('hapticToggle').checked = settings.haptic !== false;
   if ($('includeSpellToggle')) $('includeSpellToggle').checked = settings.includeSpell !== false;
   if ($('showExamplesToggle')) $('showExamplesToggle').checked = !!settings.showExamples;
-  $('followReadToggle').checked = !!settings.followRead;
-  // 跟读自评已下架：设置项隐藏，避免误触麦克风
-  if ($('followReadItem')) $('followReadItem').hidden = !FEATURES.followRead;
   if ($('pickerCount')) renderPickerState();
 }
 
 function renderAll() {
+  invalidateLib();
   renderHeader();
   renderPractice();
   renderLibrary();
   renderWrong();
   renderStats();
   renderSession();
+  buildFilterOptions();
   syncPasteEntry();
 }
 
@@ -4494,7 +4445,6 @@ function setLibMode(mode) {
   pruneFilters();
   libLimit = CONFIG.pageSize;
   invalidateLib();
-  buildFilterOptions();
   syncSettingsUI();
   renderAll();
 }
@@ -4505,21 +4455,24 @@ let rootsInfo = { source: 'builtin', version: '' };
 async function loadRootContent(expectedVersion) {
   const builtin = (typeof ROOT_DATA !== 'undefined') ? ROOT_DATA : null;
   if (!rootData) rootData = builtin;
-  if (!rootData) return;
+  if (!rootData) return false;
   rootsInfo = { source: rootData === builtin ? 'builtin' : 'remote', version: rootData.version || '' };
-  if (!/^http/i.test(location.protocol)) return;
-  if (expectedVersion && rootData.version && expectedVersion === rootData.version) return;
+  if (!/^http/i.test(location.protocol)) return false;
+  if (expectedVersion && rootData.version && expectedVersion === rootData.version) return false;
   try {
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), 2500) : null;
     const res = await fetch(`./content/roots.json?_=${Date.now()}`, { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
     if (timer) clearTimeout(timer);
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = await res.json();
-    if (!data || !data.roots || !data.words) return;
+    if (!data || !data.roots || !data.words) return false;
     rootData = data;
     rootsInfo = { source: 'remote', version: data.version || '' };
-  } catch (e) { /* 静默回退内置副本 */ }
+    return true;
+  } catch (e) {
+    return false; /* 静默回退内置副本 */
+  }
 }
 
 /* ---------- 扩展词包：加载 / 移除 / 列表（Play B） ---------- */
@@ -4583,8 +4536,9 @@ async function loadExtPack(id) {
     const data = await res.json();
     const words = Array.isArray(data.words) ? data.words : [];
     if (!words.length) throw new Error('词包为空');
-    extStore[id] = { v: data.v || '', fetchedAt: new Date().toISOString(), words };
+    extStore[id] = { v: String(data.v || ''), fetchedAt: new Date().toISOString(), words };
     rebuildExtWords();
+    invalidateLib();
     renderAll();
     track('ext_pack_load', { id, count: words.length });
     toast(`已加载「${pack.name}」${words.length} 词`);
@@ -4600,6 +4554,7 @@ function removeExtPack(id) {
   if (!pack || !extStore[id]) return;
   delete extStore[id];
   rebuildExtWords();
+  invalidateLib();
   renderAll();
   track('ext_pack_remove', { id });
   toast(`已移除「${pack.name}」`);
@@ -4614,9 +4569,13 @@ async function refreshRemoteContent() {
     if (!res.ok) return;
     const man = await res.json();
     if (!man) return;
-    if (man.roots && man.roots.version) await loadRootContent(man.roots.version);
-    if (!man.version || !Array.isArray(man.sources)) return;
-    if (contentInfo.source === 'remote' && contentInfo.version === man.version) return;
+    const rootsChanged = man.roots && man.roots.version ? await loadRootContent(man.roots.version) : false;
+    const contentUnchanged = !man.version || !Array.isArray(man.sources)
+      || (contentInfo.source === 'remote' && contentInfo.version === man.version);
+    if (contentUnchanged) {
+      if (rootsChanged) { invalidateLib(); renderAll(); }
+      return;
+    }
     const base = new URL(CONFIG.contentUrl, location.href);
     const collected = [];
     for (const src of man.sources) {
@@ -4637,7 +4596,6 @@ async function refreshRemoteContent() {
     contentInfo = { version: man.version, source: 'remote', updatedAt: new Date().toISOString(), count: collected.length };
     await DB.put('kv', { key: 'content', value: { version: man.version, fetchedAt: contentInfo.updatedAt, words: collected } });
     invalidateLib();
-    buildFilterOptions();
     renderAll();
     track('content_update', { version: man.version, count: collected.length });
     toast(`词库已更新至内容版本 ${man.version}`);
@@ -4808,9 +4766,10 @@ function bindEvents() {
   // 播放态兜底：离开页面、切后台、失焦、指针取消时都清掉绿色，
   // 避免回调丢失或触摸序列被系统打断后按钮永久处于播放态。
   window.addEventListener('blur', clearPlayingState);
-  window.addEventListener('pagehide', clearPlayingState);
+  // 关页/切后台时立即落盘 pendingKV：220ms 防抖窗口内的错题、统计、设置不能丢
+  window.addEventListener('pagehide', () => { clearPlayingState(); flushKV(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { clearPlayingState(); stopSpeaking(); }
+    if (document.hidden) { clearPlayingState(); stopSpeaking(); flushKV(); }
   });
   document.addEventListener('pointercancel', clearPlayingState, true);
 
@@ -4925,18 +4884,11 @@ function bindEvents() {
     $('showExamplesToggle').addEventListener('change', (e) => {
       settings.showExamples = !!e.target.checked;
       saveSettings();
-      if (session) renderSession();
-      renderLibrary();
+      const refresh = () => { if (session) renderSession(); renderLibrary(); };
+      if (settings.showExamples && !EXAMPLE_BANK.loaded) loadExamplesContent().then(refresh);
+      else refresh();
     });
   }
-  $('followReadToggle').addEventListener('change', (e) => {
-    if (!FEATURES.followRead) { e.target.checked = false; return; }
-    settings.followRead = !!e.target.checked;
-    saveSettings();
-    releaseRecorder();
-    renderSession();
-    toast(settings.followRead ? '结果页将显示跟读自评（录音只留在本页）' : '已关闭跟读自评');
-  });
 
   /* 词性 / 首字母 / 关键词：练词页与词库页共用同一份筛选状态 */
   let searchTimer = null;
@@ -5098,6 +5050,7 @@ function bindEvents() {
     handleFile(file);
     e.target.value = '';
   });
+  if ($('filePickBtn')) $('filePickBtn').addEventListener('click', () => $('fileInput').click());
   $('importErrors').addEventListener('click', (e) => {
     if (e.target.closest('[data-retry-import]')) $('fileInput').click();
   });
@@ -5191,14 +5144,14 @@ function bindEvents() {
       }
     });
   }
-  $('pasteResumeBtn').addEventListener('click', () => startSession('list', settings.count));
+  $('pasteResumeBtn').addEventListener('click', () => startSession('list', 'all'));
   $('pasteInput').addEventListener('input', onPasteInput);
   $('pasteStart').addEventListener('click', startPasteSession);
   $('pasteCancel').addEventListener('click', closePasteModal);
   $('closePasteModal').addEventListener('click', closePasteModal);
   $('pasteModal').addEventListener('click', (e) => { if (e.target === $('pasteModal')) closePasteModal(); });
   $('importResult').addEventListener('click', (e) => {
-    if (e.target.closest('[data-start-list]')) startSession('list', settings.count);
+    if (e.target.closest('[data-start-list]')) startSession('list', 'all');
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -5292,15 +5245,7 @@ function bindEvents() {
     } else if (action === 'listen-to-recall') {
       const card = currentCard();
       if (card) switchListenToRecall(card, '已改为看释义拼写');
-    } else if (action === 'follow-play') {
-      const card = currentCard();
-      if (card) {
-        setPlayingState(btn, 8000);
-        speakWord(card.word.word, { rate: 1 }).finally(clearPlayingState);
-      }
-    } else if (action === 'follow-record') toggleFollowRecording();
-    else if (action === 'follow-done') markFollowDone();
-    else if (action === 'go-wrong') {
+    } else if (action === 'go-wrong') {
       closeSession();
       showView('data');
       setTimeout(() => $('wrongCard').scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
@@ -5308,7 +5253,11 @@ function bindEvents() {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (!session || $('wordModal').hidden === false) return;
+    if (!session || e.isComposing) return;
+    // 任何弹窗打开时快捷键都让位：只挡 sessionBody 之外的按键，答题框内仍可正常提交
+    const modalOpen = ['settingsModal', 'wordModal', 'importModal', 'filterModal', 'pasteModal', 'backupModal', 'privacyModal']
+      .some((id) => { const el = $(id); return el && !el.hidden; });
+    if (modalOpen && e.target && e.target.id !== 'guessInput' && e.target.id !== 'recallInput') return;
     const tag = e.target && e.target.tagName;
     const inAnswerInput = e.target && (e.target.id === 'guessInput' || e.target.id === 'recallInput');
     if (tag === 'INPUT' && !inAnswerInput) return;
@@ -5336,7 +5285,6 @@ function startSessionForWord(word) {
   const w = findWord(String(word).toLowerCase()) || makeWord({ word, meanings: ['（词条已删除，仅保留错题记录）'] }, 'user');
   if (!w) return;
   stopSpeaking();
-  releaseRecorder();
   lastAudioKey = '';
   session = {
     source: 'wrong',
@@ -5421,11 +5369,12 @@ async function init() {
   initScrollbarHint();
   await loadState();
   showStorageNotice();
-  await loadRootContent();
+  // 词根先用内置副本；是否下载 roots.json 交给 content/manifest.json 的版本号决定
+  await loadRootContent(typeof ROOT_DATA !== 'undefined' ? ROOT_DATA.version : '');
   // 敏感性清单决定练习库与干扰项安全池，必须在任何队列/选项卡生成之前加载
   await loadSensitiveContent();
-  // 例句旁路可选；失败当无句，不阻塞开局
-  await loadExamplesContent();
+  // 例句旁路可选：默认关闭时不拉取，省掉每次启动约 264KB 的请求
+  if (settings.showExamples) await loadExamplesContent();
   buildFilterOptions();
   bindEvents();
   syncSettingsUI();
@@ -5463,7 +5412,7 @@ async function init() {
     get contentInfo() { return contentInfo; },
     get rootsInfo() { return rootsInfo; },
     get rootData() { return rootData; },
-    get features() { return { listenDictation: FEATURES.listenDictation, followRead: FEATURES.followRead }; },
+    get features() { return { listenDictation: FEATURES.listenDictation }; },
     wordExamples,
     examplesHTML,
     EXAMPLE_BANK,
