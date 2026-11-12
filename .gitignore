@@ -24,6 +24,8 @@ __pycache__/
 *.tmp
 *.bak
 *.swp
+# 交接/过程文档只在本地留存，不入库
+交接清单-*.md
 
 # 例句/音频生成过程的中间件，可重新生成，不入库
 tools/examples-candidates/
