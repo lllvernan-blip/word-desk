@@ -10,7 +10,7 @@ const CONFIG = {
   contentUrl: './content/manifest.json',
   pageSize: 24,
   maxEvents: 1200,
-  version: '2026.11.12.2',
+  version: '2026.11.12.3',
   /* 「不需要」上报端点：留空 = 不发任何请求（默认）。
      拿到 webhook 后把地址填在这里即可生效，无需改其它代码。 */
   markReportUrl: ''
@@ -1179,7 +1179,7 @@ async function flushKV() {
   clearTimeout(kvTimer);
   kvTimer = null;
   const keys = Object.keys(pendingKV);
-  if (!keys.length) return true;
+  if (!keys.length) return flushPendingSrs();
   const batch = {};
   keys.forEach((k) => { batch[k] = pendingKV[k]; delete pendingKV[k]; });
   try {
@@ -1191,17 +1191,34 @@ async function flushKV() {
     toastSaveFail();
     return false;
   }
+  return flushPendingSrs();
+}
+/* 把上次没写进去的 SRS 记录补写一遍；仍失败的留在队列里等下一次 */
+async function flushPendingSrs() {
+  if (!pendingSrs.size) return true;
+  let ok = true;
+  for (const key of Array.from(pendingSrs)) {
+    const rec = srsMap[key];
+    if (!rec) { pendingSrs.delete(key); continue; }
+    try { await DB.put('srs', rec); pendingSrs.delete(key); } catch (e) { ok = false; }
+  }
+  return ok;
 }
 function saveKV(key, value) {
   pendingKV[key] = value;
   clearTimeout(kvTimer);
   kvTimer = setTimeout(flushKV, 220);
 }
+/* 写失败的 SRS 记录进待重写队列，下一次 flushKV（含切后台/关页）重试，不丢这一次复习 */
+const pendingSrs = new Set();
 async function saveSrs(record) {
+  const key = record && record.word;
   try {
     await DB.put('srs', record);
+    if (key) pendingSrs.delete(key);
     return true;
   } catch (e) {
+    if (key) pendingSrs.add(key);
     toastSaveFail();
     return false;
   }
@@ -3637,7 +3654,8 @@ function finishCard(card, correct, opts) {
     rec.history[rec.history.length - 1].correct = correct;
   }
   srsMap[key] = rec;
-  saveSrs(rec);
+  // 不阻塞答题渲染：写失败由 saveSrs 提示并进待重写队列，下一次 flush 重试
+  saveSrs(rec).catch(() => false);
 
   const d = todayRec();
   if (isDrill) d.drills = (d.drills || 0) + 1;
