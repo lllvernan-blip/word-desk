@@ -10,7 +10,7 @@ const CONFIG = {
   contentUrl: './content/manifest.json',
   pageSize: 24,
   maxEvents: 1200,
-  version: '2026.11.12.1',
+  version: '2026.11.12.2',
   /* 「不需要」上报端点：留空 = 不发任何请求（默认）。
      拿到 webhook 后把地址填在这里即可生效，无需改其它代码。 */
   markReportUrl: ''
@@ -196,8 +196,25 @@ const DB = (() => {
       return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
   }
+  /* 返回值必须可信：false = 没写进去（配额满/被隐私模式禁写），上层据此提示，不许静默 */
   function lsWrite(store, val) {
-    try { localStorage.setItem(LS_PREFIX + store, JSON.stringify(val)); } catch (e) { /* 配额满时静默 */ }
+    try {
+      localStorage.setItem(LS_PREFIX + store, JSON.stringify(val));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  function lsWriteOrThrow(store, val) {
+    if (!lsWrite(store, val)) throw new Error('localStorage write failed');
+  }
+  /* IDB 写失败重试一次：首次失败常见于事务排队/连接被回收，第二次多半能过；再失败就抛给上层 */
+  async function idbWrite(fn) {
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { return await fn(); } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('idb write failed');
   }
   function keyOf(store, val) {
     return store === 'kv' ? val.key : (store === 'userWords' ? val.lower : val.word);
@@ -254,36 +271,36 @@ const DB = (() => {
       return Object.keys(data).map((k) => data[k]);
     },
     async put(store, val) {
+      // db 存在就只写 IDB：失败重试一次，仍失败抛出由上层提示，绝不降级写 LS
       if (db) {
-        try { await wrap(tx(store, 'readwrite').put(val)); return; }
-        catch (e) { /* 写失败退回 LS */ }
+        return idbWrite(() => wrap(tx(store, 'readwrite').put(val)));
       }
+      // db == null 已判定为 LS 模式，才写 localStorage
       if (store === 'events') {
         const arr = lsRead(store) || [];
         const i = arr.findIndex((x) => x && x.id === val.id);
         if (i >= 0) arr[i] = val; else arr.push(val);
-        lsWrite(store, arr.slice(-CONFIG.maxEvents));
+        lsWriteOrThrow(store, arr.slice(-CONFIG.maxEvents));
         return;
       }
       const obj = lsRead(store) || {};
       obj[keyOf(store, val)] = val;
-      lsWrite(store, obj);
+      lsWriteOrThrow(store, obj);
     },
     async del(store, key) {
       if (db) {
-        try { await wrap(tx(store, 'readwrite').delete(key)); return; }
-        catch (e) { /* ignore */ }
+        return idbWrite(() => wrap(tx(store, 'readwrite').delete(key)));
       }
       const data = lsRead(store);
       if (!data) return;
-      if (Array.isArray(data)) lsWrite(store, data.filter((x) => x.id !== key));
-      else { delete data[key]; lsWrite(store, data); }
+      if (Array.isArray(data)) lsWriteOrThrow(store, data.filter((x) => x.id !== key));
+      else { delete data[key]; lsWriteOrThrow(store, data); }
     },
     async clear(store) {
       if (db) {
-        try { await wrap(tx(store, 'readwrite').clear()); return; } catch (e) { /* ignore */ }
+        return idbWrite(() => wrap(tx(store, 'readwrite').clear()));
       }
-      lsWrite(store, store === 'events' ? [] : {});
+      lsWriteOrThrow(store, store === 'events' ? [] : {});
     },
     async putMany(store, list) {
       for (const item of list) await this.put(store, item);
@@ -836,7 +853,7 @@ let settings = {
   listenRate: 1,
   haptic: true,
   includeSpell: true,
-  showExamples: false
+  showExamples: true
 };
 let userWords = [];
 let remoteWords = [];
@@ -1151,17 +1168,44 @@ function filtersActive() {
 /* ---------- 持久化 ---------- */
 const pendingKV = {};
 let kvTimer = null;
-function flushKV() {
+/* 写失败提示：3 秒内只报一次，避免一批写失败刷屏 */
+let saveFailTimer = null;
+function toastSaveFail() {
+  if (saveFailTimer) return;
+  saveFailTimer = setTimeout(() => { saveFailTimer = null; }, 3000);
+  toast('进度保存失败，可先导出备份');
+}
+async function flushKV() {
   clearTimeout(kvTimer);
   kvTimer = null;
-  Object.keys(pendingKV).forEach((k) => { DB.put('kv', { key: k, value: pendingKV[k] }); delete pendingKV[k]; });
+  const keys = Object.keys(pendingKV);
+  if (!keys.length) return true;
+  const batch = {};
+  keys.forEach((k) => { batch[k] = pendingKV[k]; delete pendingKV[k]; });
+  try {
+    for (const k of keys) await DB.put('kv', { key: k, value: batch[k] });
+    return true;
+  } catch (e) {
+    // 没写进去的键退回待写队列，下次保存或切后台时再试，不能当成功丢掉
+    keys.forEach((k) => { if (!(k in pendingKV)) pendingKV[k] = batch[k]; });
+    toastSaveFail();
+    return false;
+  }
 }
 function saveKV(key, value) {
   pendingKV[key] = value;
   clearTimeout(kvTimer);
   kvTimer = setTimeout(flushKV, 220);
 }
-function saveSrs(record) { DB.put('srs', record); }
+async function saveSrs(record) {
+  try {
+    await DB.put('srs', record);
+    return true;
+  } catch (e) {
+    toastSaveFail();
+    return false;
+  }
+}
 function saveWrong() { saveKV('wrong', wrongBook); }
 function saveSettings() { saveKV('settings', settings); }
 function saveStats() { saveKV('stats', stats); saveKV('daily', daily); }
@@ -1226,7 +1270,13 @@ async function loadState() {
   if (!daily[dateKey()]) {
     daily[dateKey()] = { answers: 0, correct: 0, reviews: 0, newWords: 0, wrongAdded: 0, wrongTotal: wrongBook.length };
   }
-  if (touched) { Object.values(srsMap).forEach((r) => DB.put('srs', r)); }
+  if (touched) {
+    try {
+      await DB.putMany('srs', Object.values(srsMap));
+    } catch (e) {
+      toastSaveFail();
+    }
+  }
 }
 
 /* ---------- 词缀拆解 ---------- */
@@ -2463,7 +2513,8 @@ function track(name, props) {
   const ev = { id: uid(), name, ts: Date.now(), date: dateKey(), props: props || {} };
   events.push(ev);
   if (events.length > CONFIG.maxEvents) events = events.slice(-CONFIG.maxEvents);
-  DB.put('events', ev);
+  // 埋点是可丢数据：写不进去不影响学习进度，也不弹保存失败提示
+  DB.put('events', ev).catch(() => null);
 }
 
 async function flushAnalytics() {
@@ -2480,7 +2531,10 @@ async function flushAnalytics() {
       body: JSON.stringify({ app: 'word-translation-practice', version: CONFIG.version, events: batch })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    batch.forEach((e) => { e.sentAt = Date.now(); DB.put('events', e); });
+    for (const e of batch) {
+      e.sentAt = Date.now();
+      try { await DB.put('events', e); } catch (err) { toastSaveFail(); break; }
+    }
     toast(`已上报 ${batch.length} 条事件`);
   } catch (e) {
     toast('上报失败，事件仍保留在本机');
@@ -3976,12 +4030,13 @@ async function audioCoverageLine(words) {
   return `其中 ${hit} 个词有标准音频，其余 ${keys.size - hit} 个词这次用文字练习（不发声）。`;
 }
 
-function mergeImported(list, format) {
+async function mergeImported(list, format) {
   let added = 0;
   let replaced = 0;
   let invalid = 0;
   let hidden = 0;
   const seen = new Set();
+  const toPersist = [];
   list.forEach((raw) => {
     const w = makeWord(Object.assign({}, raw, { origin: 'user', source: format }), 'user');
     if (!w || !w.meanings.length) { invalid++; return; }
@@ -3992,8 +4047,14 @@ function mergeImported(list, format) {
     w.createdAt = idx >= 0 ? userWords[idx].createdAt : Date.now();
     w.updatedAt = Date.now();
     if (idx >= 0) { userWords[idx] = w; replaced++; } else { userWords.push(w); added++; }
-    DB.put('userWords', w);
+    toPersist.push(w);
   });
+  // 入库必须等真的写进去：单条失败不拦其他条，但整批失败要报出来
+  let failed = 0;
+  for (const w of toPersist) {
+    try { await DB.put('userWords', w); } catch (e) { failed++; }
+  }
+  if (failed) toastSaveFail();
   invalidateLib();
   libLimit = Math.max(libLimit, CONFIG.pageSize);
   renderAll();
@@ -4019,7 +4080,7 @@ async function handleFile(file) {
         saveKV('pasteList', pasteList);
       }
       if (r.words.length) {
-        const merged = mergeImported(r.words, 'txt');
+        const merged = await mergeImported(r.words, 'txt');
         const cover = await audioCoverageLine(r.words);
         showImportOk(`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）`
           + (merged.hidden ? `，跳过 ${merged.hidden} 条已屏蔽/已剔除的词` : '') + '。'
@@ -4050,7 +4111,7 @@ async function handleFile(file) {
       if (!result.errors.length) showImportErrors(['没有解析到任何词条']);
       return;
     }
-    const merged = mergeImported(result.words, ext);
+    const merged = await mergeImported(result.words, ext);
     const cover = await audioCoverageLine(result.words);
     const parts = [`成功导入 ${merged.added + merged.replaced} 条（新增 ${merged.added}，覆盖 ${merged.replaced}）`];
     if (merged.invalid) parts.push(`跳过 ${merged.invalid} 条重复或无效`);
@@ -4236,7 +4297,7 @@ function parseTXTWords(text) {
 
 async function loadSampleLibrary() {
   clearImportMessages();
-  const merged = mergeImported(SAMPLE_WORDS, 'sample');
+  const merged = await mergeImported(SAMPLE_WORDS, 'sample');
   const cover = await audioCoverageLine(SAMPLE_WORDS);
   showImportOk(`已载入示例词表 ${merged.added + merged.replaced} 条，可以直接去练习或筛选。${cover ? ` ${cover}` : ''}`);
   track('import_success', { format: 'sample', added: merged.added, replaced: merged.replaced });
@@ -4268,7 +4329,7 @@ function closeWordModal() {
   modalReturnFocus = null;
 }
 
-function handleWordForm(event) {
+async function handleWordForm(event) {
   event.preventDefault();
   const word = $('fWord').value.trim();
   const meanings = splitMeanings($('fMeanings').value);
@@ -4291,11 +4352,13 @@ function handleWordForm(event) {
   }), 'user');
   const idx = userWords.findIndex((x) => x.lower === obj.lower);
   if (idx >= 0) userWords[idx] = obj; else userWords.push(obj);
-  DB.put('userWords', obj);
+  // 等真写进库再报成功：写失败只提示失败，不给“已保存”的假信号
+  let stored = true;
+  try { await DB.put('userWords', obj); } catch (e) { stored = false; toastSaveFail(); }
   invalidateLib();
   renderAll();
   closeWordModal();
-  toast(idx >= 0 ? '已更新词条' : '已新增词条');
+  if (stored) toast(idx >= 0 ? '已更新词条' : '已新增词条');
 }
 
 async function deleteUserWord(word) {
@@ -4592,13 +4655,16 @@ async function refreshRemoteContent() {
       } catch (e) { /* 单个源失败不影响其他源 */ }
     }
     if (!collected.length) return;
+    const prevSource = contentInfo.source;
+    const prevVersion = contentInfo.version;
     remoteWords = collected;
     contentInfo = { version: man.version, source: 'remote', updatedAt: new Date().toISOString(), count: collected.length };
     await DB.put('kv', { key: 'content', value: { version: man.version, fetchedAt: contentInfo.updatedAt, words: collected } });
     invalidateLib();
     renderAll();
     track('content_update', { version: man.version, count: collected.length });
-    toast(`词库已更新至内容版本 ${man.version}`);
+    // 首访只是把内置库落成在线副本（source=builtin），不算“有新版本”，静默写入不提示
+    if (prevSource === 'remote' && prevVersion !== man.version) toast(`词库已更新至内容版本 ${man.version}`);
   } catch (e) { /* 静默回退本地内容 */ }
 }
 
@@ -4744,6 +4810,7 @@ async function clearAllLocalData() {
       keys.forEach((k) => localStorage.removeItem(k));
     } catch (e) { /* ignore */ }
     AUDIO_BROKEN.clear();
+    stopAudioFile(); // 先停播：revoke 正在播的 URL 会触发 onerror，被误记成 decode 失败
     AUDIO.urls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ } });
     AUDIO.urls.clear();
     AUDIO.loading.clear();
@@ -5373,8 +5440,6 @@ async function init() {
   await loadRootContent(typeof ROOT_DATA !== 'undefined' ? ROOT_DATA.version : '');
   // 敏感性清单决定练习库与干扰项安全池，必须在任何队列/选项卡生成之前加载
   await loadSensitiveContent();
-  // 例句旁路可选：默认关闭时不拉取，省掉每次启动约 264KB 的请求
-  if (settings.showExamples) await loadExamplesContent();
   buildFilterOptions();
   bindEvents();
   syncSettingsUI();
@@ -5387,6 +5452,12 @@ async function init() {
   loadAudioIndex()
     .then(() => { syncListenAvailability(); if (currentCard()) renderSession(); })
     .catch(() => null);
+  // 例句旁路（约 264KB）也放后台：默认开启不等于挡首屏，到达后再刷新
+  if (settings.showExamples) {
+    loadExamplesContent()
+      .then(() => { if (settings.showExamples) renderAll(); })
+      .catch(() => null);
+  }
   track('app_open', { db: DB.mode.current, version: CONFIG.version });
   setupPWA();
   refreshRemoteContent();
